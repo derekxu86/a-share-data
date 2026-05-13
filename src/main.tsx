@@ -40,6 +40,7 @@ const STOCK_OPTIONS: StockOption[] = [
   { symbol: '688981', name: '中芯国际', py: 'zxgj', market: 'SH' },
   { symbol: '000977', name: '浪潮信息', py: 'lcxx', market: 'SZ' },
   { symbol: '002415', name: '海康威视', py: 'hkws', market: 'SZ' },
+  { symbol: '002626', name: '金达威', py: 'jdw', market: 'SZ' },
   { symbol: '600585', name: '海螺水泥', py: 'hlsn', market: 'SH' },
   { symbol: '600309', name: '万华化学', py: 'whhx', market: 'SH' },
   { symbol: '603259', name: '药明康德', py: 'ymkd', market: 'SH' },
@@ -87,6 +88,30 @@ function safeNumber(value: any, fallback = '--') {
   return Number.isFinite(n) ? String(n) : fallback
 }
 
+function dataStatusLabel(data: any) {
+  const status = data?.data_status || data?.status
+  const source = safeText(data?.source, 'unknown')
+
+  if (status === 'real' || data?.is_fallback === false) {
+    return { text: `真实数据 · ${source}`, className: 'status-real' }
+  }
+
+  if (status === 'placeholder') {
+    return { text: `接口预留 · ${source}`, className: 'status-placeholder' }
+  }
+
+  if (status === 'ai-generated') {
+    return { text: `AI生成 · ${source}`, className: 'status-ai' }
+  }
+
+  return { text: `Fallback占位 · ${source}`, className: 'status-fallback' }
+}
+
+function DataStatus({ data }: { data: any }) {
+  const s = dataStatusLabel(data)
+  return <span className={`data-status ${s.className}`}>{s.text}</span>
+}
+
 function scoreToRadar(factorScores: any) {
   if (!factorScores || typeof factorScores !== 'object' || Array.isArray(factorScores)) {
     return []
@@ -101,17 +126,30 @@ function scoreToRadar(factorScores: any) {
 }
 
 function matchStocks(input: string) {
-  const q = input.trim().toLowerCase()
+  const raw = input.trim()
+  const q = raw.toLowerCase()
   if (!q) return STOCK_OPTIONS.slice(0, 8)
 
-  return STOCK_OPTIONS
+  const matched = STOCK_OPTIONS
     .filter((s) =>
       s.symbol.includes(q) ||
-      s.name.includes(input.trim()) ||
+      s.name.includes(raw) ||
       s.py.includes(q) ||
       `${s.name}${s.py}${s.symbol}`.toLowerCase().includes(q)
     )
     .slice(0, 8)
+
+  // 支持任意 6 位 A 股代码。即使本地股票池没有，也给一个可选项。
+  if (/^\d{6}$/.test(raw) && !matched.some((s) => s.symbol === raw)) {
+    matched.unshift({
+      symbol: raw,
+      name: `A股代码 ${raw}`,
+      py: raw,
+      market: raw.startsWith('6') ? 'SH' : 'SZ'
+    })
+  }
+
+  return matched
 }
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; message: string }> {
@@ -179,6 +217,7 @@ function ResearchPanel({ research }: { research: Json | null }) {
   if (!hasData) {
     return (
       <div className="empty-card">
+        <DataStatus data={research} />
         <strong>暂无研报数据</strong>
         <p>{safeText(research.note, '当前数据源未返回研报或EPS预测。')}</p>
         <span>Source: {safeText(research.source, 'placeholder')}</span>
@@ -188,6 +227,7 @@ function ResearchPanel({ research }: { research: Json | null }) {
 
   return (
     <div className="research-list">
+      <DataStatus data={research} />
       {reports.slice(0, 3).map((r, i) => (
         <div className="mini-card" key={`report-${i}`}>
           <strong>{safeText(r.title || r.report_title || r.name, '研报')}</strong>
@@ -212,6 +252,7 @@ function SimpleItemsPanel({ data, emptyTitle }: { data: Json | null, emptyTitle:
   if (!items.length) {
     return (
       <div className="empty-card">
+        <DataStatus data={data} />
         <strong>{emptyTitle}</strong>
         <p>{safeText(data.note, '当前接口没有返回数据。')}</p>
         <span>Source: {safeText(data.source, 'placeholder')}</span>
@@ -221,6 +262,7 @@ function SimpleItemsPanel({ data, emptyTitle }: { data: Json | null, emptyTitle:
 
   return (
     <div className="research-list">
+      <DataStatus data={research} />
       {items.slice(0, 3).map((x, i) => (
         <div className="mini-card" key={i}>
           <strong>{safeText(x.title || x.label || x.type || '数据项')}</strong>
@@ -240,6 +282,7 @@ function SignalPanel({ signals }: { signals: Json | null }) {
   if (!all.length) {
     return (
       <div className="empty-card">
+        <DataStatus data={signals} />
         <strong>暂无信号数据</strong>
         <p>{safeText(signals.note, '当前资金流/行业接口没有返回数据。')}</p>
         <span>Source: {safeText(signals?.money_flow?.source, 'placeholder')}</span>
@@ -249,6 +292,7 @@ function SignalPanel({ signals }: { signals: Json | null }) {
 
   return (
     <div className="research-list">
+      <DataStatus data={research} />
       {all.slice(0, 4).map((x, i) => (
         <div className="mini-card" key={i}>
           <strong>{safeText(x.label || x.trade_date || '信号')}</strong>
@@ -363,8 +407,20 @@ function App() {
                 setSuggestions(matchStocks(searchText))
                 setShowDropdown(true)
               }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const raw = searchText.trim()
+                  if (/^\d{6}$/.test(raw)) {
+                    setSymbol(raw)
+                    run(raw)
+                    setShowDropdown(false)
+                  } else if (suggestions[0]) {
+                    selectStock(suggestions[0])
+                  }
+                }
+              }}
               onBlur={() => setTimeout(() => setShowDropdown(false), 160)}
-              placeholder="搜索代码 / 中文 / 拼音首字母，例如 600519、贵州茅台、gzmt"
+              placeholder="搜索代码 / 中文 / 拼音首字母，例如 600519、贵州茅台、gzmt、002626"
             />
 
             {showDropdown && suggestions.length > 0 && (
@@ -407,6 +463,8 @@ function App() {
         >
           <div id="market" />
           {market ? (
+            <>
+            <DataStatus data={market} />
             <div className="quote">
               <div>
                 <span className="muted">股票</span>
@@ -425,6 +483,7 @@ function App() {
                 <strong>{safeText(market.source)}</strong>
               </div>
             </div>
+            </>
           ) : <p className="muted">暂无数据</p>}
         </LayerCard>
 
@@ -472,6 +531,7 @@ function App() {
           <div id="summary" />
           {ai ? (
             <div className="ai-summary">
+              <DataStatus data={ai} />
               <div className="score-row">
                 <div>
                   <p className="muted">Conviction Score</p>
