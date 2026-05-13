@@ -228,3 +228,56 @@ api/index.py
 ```text
 3.11
 ```
+
+
+## Vercel Fix: vite command not found
+
+如果 Vercel 报：
+
+```text
+sh: line 1: vite: command not found
+Error: Command "npm run build" exited with 127
+```
+
+原因是前端依赖没有安装。
+
+本版本已在 `vercel.json` 中加入：
+
+```json
+"installCommand": "npm install"
+```
+
+并把 `vite` 放进 `devDependencies`。
+
+
+## Vercel Fix: Serverless Function has crashed
+
+如果页面或 `/api/health` 显示：
+
+```text
+This Serverless Function has crashed
+500 INTERNAL_SERVER_ERROR
+FUNCTION_INVOCATION_FAILED
+```
+
+常见原因是 Python 依赖没有安装成功。
+
+本版本已删除 `pyproject.toml`，让 Vercel 使用根目录的：
+
+```text
+requirements.txt
+```
+
+安装 FastAPI / OpenAI / AkShare / Tushare 等依赖。
+
+重新部署后，Build Logs 里应该出现：
+
+```text
+Installing required dependencies from requirements.txt
+```
+
+而不是：
+
+```text
+Installing required dependencies from pyproject.toml
+```
