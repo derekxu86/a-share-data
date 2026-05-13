@@ -1,0 +1,8 @@
+[project]
+name = "ai-conviction-engine"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+description = "A-share AI conviction engine FastAPI backend for Vercel"
+
+[tool.uv]
+python-preference = "only-managed"

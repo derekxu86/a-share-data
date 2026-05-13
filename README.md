@@ -191,3 +191,40 @@ VPS
 ```
 
 然后前端仍然放 Vercel。
+
+
+## Current Vercel Fix
+
+如果 Vercel 报：
+
+```text
+Because there is no version of akshare==1.15.97
+```
+
+说明 requirements.txt 不应该锁死这个不存在或不可解析的版本。
+
+本版本已经改为：
+
+```text
+akshare
+tushare
+```
+
+不再锁死具体版本。
+
+请确认 GitHub 根目录有这些文件：
+
+```text
+.python-version
+pyproject.toml
+requirements.txt
+package.json
+vercel.json
+api/index.py
+```
+
+其中 `.python-version` 的内容必须是：
+
+```text
+3.11
+```
