@@ -314,7 +314,7 @@ function SignalPanel({ signals }: { signals: Json | null }) {
       {all.slice(0, 4).map((x, i) => (
         <div className="mini-card" key={i}>
           <strong>{safeText(x.label || x.trade_date || '信号')}</strong>
-          <p>{safeText(x.value || x.net_mf_amount || x.signal || '暂无说明')}</p>
+          <p>{safeText(x.value || x.main_net_inflow || x.net_mf_amount || x.signal || '暂无说明')}</p>
         </div>
       ))}
     </div>

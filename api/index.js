@@ -479,6 +479,247 @@ async function fetchEastmoneyQuote(symbol) {
   };
 }
 
+
+function parseJsonpOrJson(text) {
+  const trimmed = String(text || '').trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {}
+
+  const first = trimmed.indexOf('(');
+  const last = trimmed.lastIndexOf(')');
+  if (first >= 0 && last > first) {
+    const inner = trimmed.slice(first + 1, last);
+    try {
+      return JSON.parse(inner);
+    } catch {}
+  }
+
+  throw new Error('Unable to parse JSON/JSONP response');
+}
+
+function dateDaysAgo(days) {
+  const d = new Date(Date.now() - days * 86400000);
+  return d.toISOString().slice(0, 10);
+}
+
+async function fetchEastmoneyReports(symbol) {
+  const beginTime = dateDaysAgo(365);
+  const endTime = dateDaysAgo(0);
+
+  const url = new URL('https://reportapi.eastmoney.com/report/list');
+  url.searchParams.set('pageSize', '10');
+  url.searchParams.set('pageNo', '1');
+  url.searchParams.set('qType', '0');
+  url.searchParams.set('code', symbol);
+  url.searchParams.set('beginTime', beginTime);
+  url.searchParams.set('endTime', endTime);
+  url.searchParams.set('p', '1');
+  url.searchParams.set('pageNum', '1');
+  url.searchParams.set('pageNumber', '1');
+  url.searchParams.set('_', String(Date.now()));
+
+  const r = await fetch(url, {
+    headers: {
+      'user-agent': 'Mozilla/5.0',
+      referer: 'https://data.eastmoney.com/report/'
+    }
+  });
+
+  const text = await r.text();
+  const data = parseJsonpOrJson(text);
+  const rows = data?.data || data?.result?.data || data?.list || [];
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error('Eastmoney report API returned empty');
+  }
+
+  return {
+    symbol,
+    reports: rows.slice(0, 8).map((x) => ({
+      title: x.title || x.reportName || x.infoTitle || '研报',
+      broker: x.orgSName || x.orgName || x.orgCode || '机构',
+      analyst: x.researcher || x.author || '',
+      rating: x.emRatingName || x.rating || x.rate || '',
+      date: x.publishDate || x.datetime || x.date || '',
+      pdf_url: x.attachUrl || x.pdfUrl || x.url || '',
+      summary: x.summary || x.indvInduCode || x.industryName || ''
+    })),
+    forecasts: [],
+    source: '东方财富研报 reportapi.eastmoney.com',
+    data_status: 'real',
+    is_fallback: false,
+    note: '真实东方财富研报接口返回。'
+  };
+}
+
+async function fetchEastmoneyFundFlow(symbol) {
+  const secid = toSecid(symbol);
+  const url = new URL('https://push2his.eastmoney.com/api/qt/stock/fflow/kline/get');
+  url.searchParams.set('secid', secid);
+  url.searchParams.set('klt', '101');
+  url.searchParams.set('lmt', '20');
+  url.searchParams.set('fields1', 'f1,f2,f3,f7');
+  url.searchParams.set('fields2', 'f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63');
+  url.searchParams.set('_', String(Date.now()));
+
+  const r = await fetch(url, {
+    headers: {
+      'user-agent': 'Mozilla/5.0',
+      referer: 'https://quote.eastmoney.com/'
+    }
+  });
+
+  const data = await r.json();
+  const klines = data?.data?.klines || [];
+  if (!Array.isArray(klines) || klines.length === 0) {
+    throw new Error('Eastmoney fund flow returned empty');
+  }
+
+  const items = klines.slice(-10).map((line) => {
+    const p = String(line).split(',');
+    return {
+      trade_date: p[0],
+      main_net_inflow: Number(p[1]),
+      small_net_inflow: Number(p[2]),
+      medium_net_inflow: Number(p[3]),
+      large_net_inflow: Number(p[4]),
+      super_large_net_inflow: Number(p[5]),
+      main_net_ratio: Number(p[6]),
+      source_raw: line
+    };
+  });
+
+  const latest = items[items.length - 1] || {};
+  const meta = getMeta(symbol);
+
+  return {
+    symbol,
+    money_flow: {
+      items,
+      source: '东方财富资金流 push2his',
+      latest
+    },
+    northbound: {
+      items: [{ label: '北向资金', value: '待接入东方财富沪深港通专用接口', signal: 'pending' }],
+      source: 'placeholder'
+    },
+    dragon_tiger: {
+      items: [{ label: '龙虎榜', value: '待接入东方财富龙虎榜专用接口', signal: 'pending' }],
+      source: 'placeholder'
+    },
+    sector_ranking: {
+      items: [{ label: meta.industry, value: meta.theme, signal: 'theme-map' }],
+      source: '本地主题映射'
+    },
+    source: '东方财富资金流 push2his',
+    data_status: 'real',
+    is_fallback: false,
+    note: '真实东方财富个股资金流接口返回。'
+  };
+}
+
+async function fetchCninfoAnnouncements(symbol) {
+  const market = symbol.startsWith('6') ? 'sse' : 'szse';
+  const body = new URLSearchParams();
+  body.set('pageNum', '1');
+  body.set('pageSize', '10');
+  body.set('column', market);
+  body.set('tabName', 'fulltext');
+  body.set('plate', '');
+  body.set('stock', `${symbol},`);
+  body.set('searchkey', '');
+  body.set('secid', '');
+  body.set('category', '');
+  body.set('trade', '');
+  body.set('seDate', `${dateDaysAgo(365)}~${dateDaysAgo(0)}`);
+  body.set('sortName', '');
+  body.set('sortType', '');
+  body.set('isHLtitle', 'true');
+
+  const r = await fetch('https://www.cninfo.com.cn/new/hisAnnouncement/query', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'user-agent': 'Mozilla/5.0',
+      referer: 'https://www.cninfo.com.cn/new/commonUrl/pageOfSearch?url=disclosure/list/search'
+    },
+    body
+  });
+
+  const data = await r.json();
+  const rows = data?.announcements || [];
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error('CNInfo announcements returned empty');
+  }
+
+  return {
+    symbol,
+    items: rows.slice(0, 8).map((x) => ({
+      title: String(x.announcementTitle || '').replace(/<[^>]*>/g, ''),
+      type: x.category || x.announcementTypeName || '',
+      date: x.announcementTime ? new Date(x.announcementTime).toISOString().slice(0, 10) : '',
+      url: x.adjunctUrl ? `https://static.cninfo.com.cn/${x.adjunctUrl}` : '',
+      summary: x.announcementTitle || ''
+    })),
+    source: '巨潮资讯 cninfo.com.cn',
+    data_status: 'real',
+    is_fallback: false,
+    note: '真实巨潮公告接口返回。'
+  };
+}
+
+async function fetchEastmoneyNews(symbol) {
+  const meta = getMeta(symbol);
+  const keyword = meta.name && meta.name !== symbol ? meta.name : symbol;
+
+  const candidates = [
+    `https://search-api-web.eastmoney.com/search/web?keyword=${encodeURIComponent(keyword)}&pageIndex=1&pageSize=10`,
+    `https://search-api-web.eastmoney.com/search/jsonp?keyword=${encodeURIComponent(keyword)}&pageIndex=1&pageSize=10`
+  ];
+
+  const errors = [];
+
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url, {
+        headers: {
+          'user-agent': 'Mozilla/5.0',
+          referer: 'https://www.eastmoney.com/'
+        }
+      });
+      const text = await r.text();
+      const data = parseJsonpOrJson(text);
+      const rows =
+        data?.result?.cmsArticleWebOld ||
+        data?.result?.data ||
+        data?.data ||
+        data?.items ||
+        [];
+
+      if (Array.isArray(rows) && rows.length > 0) {
+        return {
+          symbol,
+          items: rows.slice(0, 8).map((x) => ({
+            title: x.title || x.Title || x.newsTitle || x.name || '新闻',
+            source: x.source || x.Source || '东方财富',
+            date: x.date || x.showTime || x.publishTime || '',
+            url: x.url || x.Url || '',
+            summary: x.content || x.summary || x.digest || x.title || ''
+          })),
+          source: '东方财富搜索新闻',
+          data_status: 'real',
+          is_fallback: false,
+          note: '真实东方财富搜索新闻接口返回。'
+        };
+      }
+    } catch (error) {
+      errors.push(String(error.message || error));
+    }
+  }
+
+  throw new Error(errors.join(' | ') || 'Eastmoney news returned empty');
+}
+
 async function handleHealth(req, res) {
   return send(res, 200, {
     name: 'AI Conviction Engine',
@@ -536,13 +777,25 @@ async function handleMarketKline(req, res) {
 async function handleResearchReports(req, res) {
   const symbol = getSymbol(req);
   if (!symbol) return send(res, 400, { error: 'Missing symbol' });
-  return send(res, 200, demoResearch(symbol));
+
+  try {
+    const result = await fetchEastmoneyReports(symbol);
+    return send(res, 200, result);
+  } catch (error) {
+    return send(res, 200, demoResearch(symbol, String(error.message || error)));
+  }
 }
 
 async function handleSignalsOverview(req, res) {
   const symbol = getSymbol(req);
   if (!symbol) return send(res, 400, { error: 'Missing symbol' });
-  return send(res, 200, demoSignals(symbol));
+
+  try {
+    const result = await fetchEastmoneyFundFlow(symbol);
+    return send(res, 200, result);
+  } catch (error) {
+    return send(res, 200, demoSignals(symbol, String(error.message || error)));
+  }
 }
 
 async function handleGlobalNews(req, res) {
@@ -557,12 +810,26 @@ async function handleGlobalNews(req, res) {
 
 async function handleStockNews(req, res) {
   const symbol = getSymbol(req);
-  return send(res, 200, demoNews(symbol));
+  if (!symbol) return send(res, 400, { error: 'Missing symbol' });
+
+  try {
+    const result = await fetchEastmoneyNews(symbol);
+    return send(res, 200, result);
+  } catch (error) {
+    return send(res, 200, demoNews(symbol, String(error.message || error)));
+  }
 }
 
 async function handleAnnouncements(req, res) {
   const symbol = getSymbol(req);
-  return send(res, 200, demoAnnouncements(symbol));
+  if (!symbol) return send(res, 400, { error: 'Missing symbol' });
+
+  try {
+    const result = await fetchCninfoAnnouncements(symbol);
+    return send(res, 200, result);
+  } catch (error) {
+    return send(res, 200, demoAnnouncements(symbol, String(error.message || error)));
+  }
 }
 
 async function handleAiConviction(req, res) {

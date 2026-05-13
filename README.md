@@ -126,3 +126,15 @@ POST /api/ai/conviction
 - 如果东方财富股票列表不可用，才 fallback 到本地小股票池
 - 行情层增加新浪财经作为第三行情源：东方财富 → 腾讯财经 → 新浪财经 → fallback
 - 状态标签继续显示真实数据 / fallback / 接口预留
+
+
+## v4 Real Layers
+
+本版本新增真实接口尝试：
+
+- 研报层：东方财富 reportapi
+- 信号层：东方财富个股资金流 push2his
+- 新闻层：东方财富搜索新闻接口
+- 公告层：巨潮资讯 cninfo 公告接口
+
+如果这些接口在 Vercel 节点被阻断或返回空，才 fallback，并会显示 fallback 原因。
