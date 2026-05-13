@@ -205,6 +205,60 @@ function ResearchPanel({ research }: { research: Json | null }) {
   )
 }
 
+
+function SimpleItemsPanel({ data, emptyTitle }: { data: Json | null, emptyTitle: string }) {
+  const items = ensureArray(data?.items)
+  if (!data) return <p className="muted">暂无数据</p>
+  if (!items.length) {
+    return (
+      <div className="empty-card">
+        <strong>{emptyTitle}</strong>
+        <p>{safeText(data.note, '当前接口没有返回数据。')}</p>
+        <span>Source: {safeText(data.source, 'placeholder')}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="research-list">
+      {items.slice(0, 3).map((x, i) => (
+        <div className="mini-card" key={i}>
+          <strong>{safeText(x.title || x.label || x.type || '数据项')}</strong>
+          <p>{safeText(x.summary || x.value || x.sentiment || x.signal || x.source || '暂无摘要')}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SignalPanel({ signals }: { signals: Json | null }) {
+  if (!signals) return <p className="muted">暂无数据</p>
+  const money = ensureArray(signals?.money_flow?.items)
+  const sector = ensureArray(signals?.sector_ranking?.items)
+  const all = [...money, ...sector]
+
+  if (!all.length) {
+    return (
+      <div className="empty-card">
+        <strong>暂无信号数据</strong>
+        <p>{safeText(signals.note, '当前资金流/行业接口没有返回数据。')}</p>
+        <span>Source: {safeText(signals?.money_flow?.source, 'placeholder')}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="research-list">
+      {all.slice(0, 4).map((x, i) => (
+        <div className="mini-card" key={i}>
+          <strong>{safeText(x.label || x.trade_date || '信号')}</strong>
+          <p>{safeText(x.value || x.net_mf_amount || x.signal || '暂无说明')}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function App() {
   const [symbol, setSymbol] = React.useState('600519')
   const [searchText, setSearchText] = React.useState('贵州茅台')
@@ -389,13 +443,7 @@ function App() {
           subtitle="北向资金、龙虎榜、行业排名、资金流"
         >
           <div id="signals" />
-          <JsonBlock data={{
-            money_flow_source: signals?.money_flow?.source,
-            money_flow_count: signals?.money_flow?.items?.length || 0,
-            northbound_source: signals?.northbound?.source,
-            dragon_tiger_count: signals?.dragon_tiger?.items?.length || 0,
-            sector_count: signals?.sector_ranking?.items?.length || 0
-          }} />
+          <SignalPanel signals={signals} />
         </LayerCard>
 
         <LayerCard
@@ -404,7 +452,7 @@ function App() {
           subtitle="快讯、个股新闻、AI新闻摘要"
         >
           <div id="news" />
-          <JsonBlock data={news?.items?.slice?.(0, 3) || news || {}} />
+          <SimpleItemsPanel data={news} emptyTitle="暂无新闻数据" />
         </LayerCard>
 
         <LayerCard
@@ -413,7 +461,7 @@ function App() {
           subtitle="公司公告、财报、交易所公告"
         >
           <div id="announcements" />
-          <JsonBlock data={announcements?.items?.slice?.(0, 3) || announcements || {}} />
+          <SimpleItemsPanel data={announcements} emptyTitle="暂无公告数据" />
         </LayerCard>
 
         <LayerCard

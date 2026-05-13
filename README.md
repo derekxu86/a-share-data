@@ -1,64 +1,90 @@
-# AI Conviction Engine - Vercel Single Function
+# AI Conviction Engine - A股数据源结构版
 
-这是适合 Vercel Hobby 免费版部署的版本。
+本版本按你提供的图中数据源重构，不再把 Tushare / Finnhub 作为核心源。
 
-## 为什么要合并 API？
+## 图中数据源
 
-Vercel Hobby 免费版限制：
+| 数据源 | 协议 | 是否需要 Key | Vercel Node 适配 |
+|---|---|---|---|
+| mootdx | TCP 7709 | 免费 | 不适合 Vercel，适合独立 Python 后端 |
+| 腾讯财经 | HTTP | 免费 | 适合 |
+| akshare | Python | 免费 | 不适合 Vercel Node，适合独立 Python 后端 |
+| iwencai | REST API | 需 Key / Cookie | 后续接 |
+| 东方财富 PDF | HTTP | 免费 | 适合 |
+| 同花顺 | HTTP | 免费 | 部分适合 |
+| 百度股市通 | HTTP | 免费 | 适合 |
+| 巨潮 | HTTP | 免费 | 适合 |
+
+## 当前 Vercel 版策略
+
+Vercel Hobby 免费版最稳的是：
 
 ```text
-No more than 12 Serverless Functions
+前端 React
++
+单个 Node Serverless Function
++
+HTTP 数据源
 ```
 
-所以本版本把所有 API 合并进：
+所以当前版本：
+
+- 行情层：东方财富 HTTP → 腾讯财经 HTTP → fallback
+- 研报层：东方财富 PDF 结构预留 + fallback
+- 信号层：同花顺/东方财富/百度股市通结构预留 + fallback
+- 新闻层：腾讯财经/百度股市通结构预留 + fallback
+- 公告层：巨潮结构预留 + fallback
+- AI总结层：OpenAI
+
+## 不在 Vercel 里直接跑的源
 
 ```text
-api/index.js
+mootdx
+akshare
 ```
 
-这样 Vercel 只会创建 **1 个 Serverless Function**。
+原因：
 
-## 结构
+- `mootdx` 走 TCP 7709，适合 VPS / Railway / Render，不适合 Vercel Serverless
+- `akshare` 是 Python 包，适合独立 Python 后端，不适合当前 Node 单函数版本
+
+## 推荐最终架构
 
 ```text
-.
-├── api/
-│   └── index.js
-├── src/
-├── index.html
-├── package.json
-├── vercel.json
-└── .env.example
+Vercel:
+- React frontend
+- Node /api/index.js
+- 东方财富 / 腾讯财经 / 百度股市通 / 巨潮 HTTP
+
+Railway 或 Render:
+- Python service
+- mootdx
+- akshare
 ```
 
-## Vercel 环境变量
+## Environment Variables
 
-在 Vercel Project Settings → Environment Variables 添加：
+Vercel 目前只必须要：
 
 ```env
-OPENAI_API_KEY=你的新OpenAI key
-TUSHARE_TOKEN=你的Tushare token
-FINNHUB_API_KEY=你的Finnhub key
+OPENAI_API_KEY=你的OpenAI key
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-## 测试地址
+可选：
 
-部署后先打开：
-
-```text
-/api/health
+```env
+IWENCAI_KEY=
 ```
 
-然后测试：
+不再需要：
 
-```text
-/api/market/quote?symbol=600519
-/api/signals/overview?symbol=600519
-/api/ai/conviction
+```env
+TUSHARE_TOKEN
+FINNHUB_API_KEY
 ```
 
-## 已合并的接口
+## API
 
 ```text
 GET  /api/health
@@ -66,7 +92,6 @@ GET  /api/market/quote?symbol=600519
 GET  /api/market/kline?symbol=600519
 GET  /api/research/reports?symbol=600519
 GET  /api/signals/overview?symbol=600519
-GET  /api/news/global
 GET  /api/news/stock?symbol=600519
 GET  /api/announcements/stock?symbol=600519
 POST /api/ai/conviction
@@ -74,25 +99,4 @@ POST /api/ai/conviction
 
 ## 注意
 
-本项目仅用于研究和教育演示，不构成投资建议。  
-
-
-## Safe UI Fix
-
-如果首页加载一下后黑屏，通常是前端渲染时某个 API 返回格式与预期不同。  
-本版本已加入：
-
-- ErrorBoundary，防止整页黑屏
-- safeArray，防止 `bull_case.map is not a function`
-- safeText / safeNumber，防止对象或空值直接渲染
-- 更稳的 JSON fallback
-
-
-## UI Upgrade v1
-
-本版本修复：
-
-- 搜索框支持代码、中文、拼音首字母
-- 搜索框有下拉建议
-- 研报层不再只显示空数组，会显示状态卡片
-- 雷达六边形增加明显橙色填充、描边、网格线和点位
+本项目仅用于研究和教育演示，不构成投资建议。
