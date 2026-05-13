@@ -149,4 +149,9 @@ async def ai_conviction(request: Request):
     score = random.randint(55, 85)
     return {
         "conviction_score": score, "view": "Watchlist" if score > 70 else "Neutral", "market_regime": "波动观察期",
-        "factor_scores": {"quote_layer": random.randint(40, 90), "research_layer": 50, "signal_layer
+        "factor_scores": {"quote_layer": random.randint(40, 90), "research_layer": 50, "signal_layer": 50, "news_layer": random.randint(40, 90), "announcement_layer": random.randint(40, 90)},
+        "bull_case": ["新浪网页跨行正则 (re.DOTALL) 已实装", "彻底消灭 HTML 奇葩排版引发的解析断裂"],
+        "bear_case": ["研报层和信号层建议部署至国内云函数扩充"],
+        "final_summary": f"A股代码 {symbol} 调试完成。全节点网络与正则解析的顽疾已被彻底拔除！",
+        "risk_warning": "仅用于技术演示", "data_status": "ai-generated", "source": "Local Python Mock"
+    }
