@@ -1,41 +1,29 @@
-# AI Conviction Engine - Vercel Stable Node Version
+# AI Conviction Engine - Vercel Single Function
 
-这是一个适合直接部署到 Vercel 的 A股 AI 投研决策引擎原型。
+这是适合 Vercel Hobby 免费版部署的版本。
 
-这个版本已经移除 Python / FastAPI / AkShare，改成 Vercel 原生 Node.js Serverless API，主要解决：
+## 为什么要合并 API？
+
+Vercel Hobby 免费版限制：
 
 ```text
-This Serverless Function has crashed
-FUNCTION_INVOCATION_FAILED
+No more than 12 Serverless Functions
 ```
 
-## 为什么改成 Node.js？
+所以本版本把所有 API 合并进：
 
-Vercel 对 Python 金融数据包依赖比较敏感，AkShare / pandas / Tushare / FastAPI 组合容易出现 build 或 runtime 问题。  
-Node.js API 在 Vercel 上更稳定。
+```text
+api/index.js
+```
 
-## 项目结构
+这样 Vercel 只会创建 **1 个 Serverless Function**。
+
+## 结构
 
 ```text
 .
 ├── api/
-│   ├── health.js
-│   ├── _utils.js
-│   ├── market/
-│   │   ├── quote.js
-│   │   └── kline.js
-│   ├── research/
-│   │   └── reports.js
-│   ├── signals/
-│   │   └── overview.js
-│   ├── news/
-│   │   ├── global.js
-│   │   ├── latest.js
-│   │   └── stock.js
-│   ├── announcements/
-│   │   └── stock.js
-│   └── ai/
-│       └── conviction.js
+│   └── index.js
 ├── src/
 ├── index.html
 ├── package.json
@@ -43,7 +31,7 @@ Node.js API 在 Vercel 上更稳定。
 └── .env.example
 ```
 
-## Vercel Environment Variables
+## Vercel 环境变量
 
 在 Vercel Project Settings → Environment Variables 添加：
 
@@ -54,42 +42,36 @@ FINNHUB_API_KEY=你的Finnhub key
 OPENAI_MODEL=gpt-4o-mini
 ```
 
-## API 测试
+## 测试地址
 
 部署后先打开：
 
 ```text
-https://你的域名.vercel.app/api/health
+/api/health
 ```
 
-应该返回：
+然后测试：
 
-```json
-{
-  "name": "AI Conviction Engine",
-  "status": "ok",
-  "runtime": "vercel-node",
-  "api": "stable"
-}
+```text
+/api/market/quote?symbol=600519
+/api/signals/overview?symbol=600519
+/api/ai/conviction
 ```
 
-## 已接入
+## 已合并的接口
 
-| Layer | Endpoint | 数据源 |
-|---|---|---|
-| 健康检查 | `/api/health` | 本地 |
-| 行情层 | `/api/market/quote?symbol=600519` | 东方财富 push2 + Tushare 增强 |
-| K线层 | `/api/market/kline?symbol=600519` | Tushare daily |
-| 信号层 | `/api/signals/overview?symbol=600519` | Tushare moneyflow |
-| 研报层 | `/api/research/reports?symbol=600519` | Tushare forecast placeholder |
-| 新闻层 | `/api/news/global` | Finnhub |
-| 公告层 | `/api/announcements/stock?symbol=600519` | 占位 |
-| AI总结 | `/api/ai/conviction` | OpenAI |
+```text
+GET  /api/health
+GET  /api/market/quote?symbol=600519
+GET  /api/market/kline?symbol=600519
+GET  /api/research/reports?symbol=600519
+GET  /api/signals/overview?symbol=600519
+GET  /api/news/global
+GET  /api/news/stock?symbol=600519
+GET  /api/announcements/stock?symbol=600519
+POST /api/ai/conviction
+```
 
 ## 注意
 
-- 这个版本以“稳定部署”为优先。
-- 没有 Python 依赖，不会再出现 Python Serverless crash。
-- AkShare / mootdx 如果以后要做，建议单独放到 Railway / Render / VPS 后端。
-- Vercel 只做前端 + 轻量 API。
-- 本项目仅用于研究和教育演示，不构成投资建议。
+本项目仅用于研究和教育演示，不构成投资建议。  
