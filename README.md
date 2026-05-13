@@ -156,3 +156,38 @@ POST /api/ai/conviction
 
 如果 key 曾经出现在聊天、截图、公开仓库或前端代码中，请立即 rotate。  
 本项目不做自动交易、不做下单、不做荐股，只做研究和决策辅助。
+
+
+## Vercel Build Troubleshooting
+
+本项目已加入：
+
+```text
+.python-version
+```
+
+内容为：
+
+```text
+3.11
+```
+
+原因是部分金融数据 Python 库在 Vercel 默认 Python 3.12 下可能安装失败。
+
+当前 Vercel 版本暂时移除了 `mootdx` 依赖。  
+原因：
+
+- `mootdx` 走通达信 TCP 7709，更适合本地服务器 / VPS / Railway 后端
+- Vercel serverless 更适合 HTTP API
+- 第一版线上部署优先使用 AkShare + Tushare + Finnhub + OpenAI
+
+如果以后要稳定接 mootdx，建议把后端部署到：
+
+```text
+Railway
+Render
+Fly.io
+VPS
+```
+
+然后前端仍然放 Vercel。
