@@ -78,7 +78,7 @@ async def get_news(symbol: str):
         except Exception as e:
             return {"items": [], "data_status": "fallback", "note": f"抓取异常: {str(e)}"}
 
-# ================= 4. 公告层 (极简精准狙击版) =================
+# ================= 4. 公告层 (引入 re.DOTALL 跨行修复版) =================
 @app.get("/api/announcements/stock")
 async def get_announcements(symbol: str):
     prefix = 'sh' if symbol.startswith('6') else 'sz'
@@ -88,19 +88,21 @@ async def get_announcements(symbol: str):
             r = await client.get(url, headers=HEADERS)
             content = r.content.decode('gbk', errors='ignore')
             
-            # 找出页面所有 a 标签
-            matches = re.findall(r'<a\s+[^>]*href=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</a>', content, re.IGNORECASE)
+            # 关键修复：加入 re.DOTALL 允许跨行匹配。解决新浪在标题中间强行回车导致正则断裂的问题
+            matches = re.findall(r'<a\s+[^>]*href=[\'"]([^\'"]+)[\'"][^>]*>(.*?)</a>', content, re.IGNORECASE | re.DOTALL)
             
             if matches:
                 items = []
                 seen_urls = set()
                 for m in matches:
                     if len(items) >= 8: break
-                    url_match = m[0]
-                    # 清洗标题中的多余 HTML 和空格
-                    title = re.sub(r'<[^>]+>', '', m[1]).replace('&nbsp;', '').replace('\n', '').strip()
+                    url_match = m[0].strip()
                     
-                    # 【核心过滤】必须包含 bulletin 且带有 id= 参数，名字长度必须大于 4！
+                    # 清洗标题：去掉 HTML 标签，并把所有换行符和制表符彻底抹除
+                    title = re.sub(r'<[^>]+>', '', m[1])
+                    title = title.replace('&nbsp;', '').replace('\n', '').replace('\r', '').replace('\t', '').strip()
+                    
+                    # 核心过滤：必须包含 bulletin 且有 id= 参数
                     if 'bulletin' in url_match.lower() and 'id=' in url_match.lower():
                         if not title or len(title) <= 4 or '更多' in title: 
                             continue
@@ -116,7 +118,7 @@ async def get_announcements(symbol: str):
                             "type": "公司公告",
                             "date": "最新披露", 
                             "url": url_match,
-                            "summary": title # 直接将摘要也设为真实标题
+                            "summary": title
                         })
                         
                 if items:
@@ -147,9 +149,4 @@ async def ai_conviction(request: Request):
     score = random.randint(55, 85)
     return {
         "conviction_score": score, "view": "Watchlist" if score > 70 else "Neutral", "market_regime": "波动观察期",
-        "factor_scores": {"quote_layer": random.randint(40, 90), "research_layer": 50, "signal_layer": 50, "news_layer": random.randint(40, 90), "announcement_layer": random.randint(40, 90)},
-        "bull_case": ["新浪网页硬核解析机制已升级为精准过滤", "Vercel 海外 IP 拦截被彻底攻克"],
-        "bear_case": ["研报层和信号层建议部署至国内云函数扩充"],
-        "final_summary": f"A股代码 {symbol} 调试大结局。全节点反爬虫绕过策略已完成，精准解析模块满血运行！",
-        "risk_warning": "仅用于技术演示", "data_status": "ai-generated", "source": "Local Python Mock"
-    }
+        "factor_scores": {"quote_layer": random.randint(40, 90), "research_layer": 50, "signal_layer
