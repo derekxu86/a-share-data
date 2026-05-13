@@ -192,12 +192,16 @@ async function handleResearchReports(req, res) {
       'ts_code,ann_date,end_date,type,p_change_min,p_change_max,net_profit_min,net_profit_max,summary'
     );
 
+    const forecasts = forecast.ok ? forecast.items : [];
     return send(res, 200, {
       symbol,
       reports: [],
-      forecasts: forecast.ok ? forecast.items : [],
+      forecasts,
       source: forecast.ok ? 'tushare.forecast' : 'placeholder',
-      note: forecast.ok ? 'Research PDF layer can be added later via Eastmoney/CNInfo.' : forecast.error
+      note: forecasts.length > 0
+        ? 'Tushare forecast data returned.'
+        : (forecast.error || '当前接口未返回研报/EPS预测。下一步可接东方财富研报PDF或巨潮公告。'),
+      status: forecasts.length > 0 ? 'ok' : 'empty'
     });
   } catch (error) {
     return send(res, 200, { symbol, reports: [], forecasts: [], source: 'safe-fallback', error: String(error.message || error) });

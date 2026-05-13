@@ -86,3 +86,13 @@ POST /api/ai/conviction
 - safeArray，防止 `bull_case.map is not a function`
 - safeText / safeNumber，防止对象或空值直接渲染
 - 更稳的 JSON fallback
+
+
+## UI Upgrade v1
+
+本版本修复：
+
+- 搜索框支持代码、中文、拼音首字母
+- 搜索框有下拉建议
+- 研报层不再只显示空数组，会显示状态卡片
+- 雷达六边形增加明显橙色填充、描边、网格线和点位

@@ -1,12 +1,54 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { Activity, Newspaper, FileText, Brain, Radio, BarChart3 } from 'lucide-react'
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts'
+import { Activity, Newspaper, FileText, Brain, Radio, BarChart3, Search } from 'lucide-react'
+import {
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  ResponsiveContainer,
+} from 'recharts'
 import './styles.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
 type Json = Record<string, any>
+
+type StockOption = {
+  symbol: string
+  name: string
+  py: string
+  market?: string
+}
+
+const STOCK_OPTIONS: StockOption[] = [
+  { symbol: '600519', name: '贵州茅台', py: 'gzmt', market: 'SH' },
+  { symbol: '000858', name: '五粮液', py: 'wly', market: 'SZ' },
+  { symbol: '601318', name: '中国平安', py: 'zgpa', market: 'SH' },
+  { symbol: '600036', name: '招商银行', py: 'zsyh', market: 'SH' },
+  { symbol: '601899', name: '紫金矿业', py: 'zjky', market: 'SH' },
+  { symbol: '600276', name: '恒瑞医药', py: 'hryy', market: 'SH' },
+  { symbol: '300750', name: '宁德时代', py: 'ndsd', market: 'SZ' },
+  { symbol: '002594', name: '比亚迪', py: 'byd', market: 'SZ' },
+  { symbol: '000333', name: '美的集团', py: 'mdjt', market: 'SZ' },
+  { symbol: '600900', name: '长江电力', py: 'cjdl', market: 'SH' },
+  { symbol: '601012', name: '隆基绿能', py: 'ljln', market: 'SH' },
+  { symbol: '000001', name: '平安银行', py: 'payh', market: 'SZ' },
+  { symbol: '600030', name: '中信证券', py: 'zxzq', market: 'SH' },
+  { symbol: '300059', name: '东方财富', py: 'dfcf', market: 'SZ' },
+  { symbol: '688981', name: '中芯国际', py: 'zxgj', market: 'SH' },
+  { symbol: '000977', name: '浪潮信息', py: 'lcxx', market: 'SZ' },
+  { symbol: '002415', name: '海康威视', py: 'hkws', market: 'SZ' },
+  { symbol: '600585', name: '海螺水泥', py: 'hlsn', market: 'SH' },
+  { symbol: '600309', name: '万华化学', py: 'whhx', market: 'SH' },
+  { symbol: '603259', name: '药明康德', py: 'ymkd', market: 'SH' },
+  { symbol: '600887', name: '伊利股份', py: 'ylgf', market: 'SH' },
+  { symbol: '000063', name: '中兴通讯', py: 'zxtx', market: 'SZ' },
+  { symbol: '600050', name: '中国联通', py: 'zglt', market: 'SH' },
+  { symbol: '601398', name: '工商银行', py: 'gsyh', market: 'SH' },
+  { symbol: '601857', name: '中国石油', py: 'zgsy', market: 'SH' },
+]
 
 async function getJson(path: string) {
   const res = await fetch(`${API_BASE}${path}`)
@@ -28,6 +70,10 @@ function safeArray(value: any): string[] {
   if (Array.isArray(value)) return value.map((x) => String(x))
   if (typeof value === 'string' && value.trim()) return [value]
   return []
+}
+
+function ensureArray(value: any): any[] {
+  return Array.isArray(value) ? value : []
 }
 
 function safeText(value: any, fallback = '--') {
@@ -52,6 +98,20 @@ function scoreToRadar(factorScores: any) {
       score: Number(value || 0),
     }))
     .filter((x) => Number.isFinite(x.score))
+}
+
+function matchStocks(input: string) {
+  const q = input.trim().toLowerCase()
+  if (!q) return STOCK_OPTIONS.slice(0, 8)
+
+  return STOCK_OPTIONS
+    .filter((s) =>
+      s.symbol.includes(q) ||
+      s.name.includes(input.trim()) ||
+      s.py.includes(q) ||
+      `${s.name}${s.py}${s.symbol}`.toLowerCase().includes(q)
+    )
+    .slice(0, 8)
 }
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; message: string }> {
@@ -109,8 +169,47 @@ function JsonBlock({ data }: { data: any }) {
   return <pre className="json-block">{JSON.stringify(data ?? {}, null, 2)}</pre>
 }
 
+function ResearchPanel({ research }: { research: Json | null }) {
+  const reports = ensureArray(research?.reports)
+  const forecasts = ensureArray(research?.forecasts)
+  const hasData = reports.length > 0 || forecasts.length > 0
+
+  if (!research) return <p className="muted">暂无数据</p>
+
+  if (!hasData) {
+    return (
+      <div className="empty-card">
+        <strong>暂无研报数据</strong>
+        <p>{safeText(research.note, '当前数据源未返回研报或EPS预测。')}</p>
+        <span>Source: {safeText(research.source, 'placeholder')}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="research-list">
+      {reports.slice(0, 3).map((r, i) => (
+        <div className="mini-card" key={`report-${i}`}>
+          <strong>{safeText(r.title || r.report_title || r.name, '研报')}</strong>
+          <p>{safeText(r.org_name || r.broker || r.source || r.author, '机构信息暂无')}</p>
+        </div>
+      ))}
+
+      {forecasts.slice(0, 3).map((f, i) => (
+        <div className="mini-card" key={`forecast-${i}`}>
+          <strong>{safeText(f.type || f.end_date || '业绩预告')}</strong>
+          <p>{safeText(f.summary || f.p_change_min || f.net_profit_min, '暂无摘要')}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function App() {
   const [symbol, setSymbol] = React.useState('600519')
+  const [searchText, setSearchText] = React.useState('贵州茅台')
+  const [suggestions, setSuggestions] = React.useState<StockOption[]>([])
+  const [showDropdown, setShowDropdown] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [market, setMarket] = React.useState<Json | null>(null)
   const [research, setResearch] = React.useState<Json | null>(null)
@@ -120,18 +219,39 @@ function App() {
   const [ai, setAi] = React.useState<Json | null>(null)
   const [error, setError] = React.useState<string>('')
 
-  async function run() {
+  function handleSearchChange(value: string) {
+    setSearchText(value)
+    setSuggestions(matchStocks(value))
+    setShowDropdown(true)
+
+    const exact = STOCK_OPTIONS.find(
+      (s) => s.symbol === value.trim() || s.name === value.trim() || s.py === value.trim().toLowerCase()
+    )
+    if (exact) setSymbol(exact.symbol)
+    else if (/^\d{6}$/.test(value.trim())) setSymbol(value.trim())
+  }
+
+  function selectStock(stock: StockOption) {
+    setSymbol(stock.symbol)
+    setSearchText(stock.name)
+    setSuggestions([])
+    setShowDropdown(false)
+    setTimeout(() => run(stock.symbol), 0)
+  }
+
+  async function run(nextSymbol?: string) {
+    const activeSymbol = nextSymbol || symbol
     setLoading(true)
     setError('')
     setAi(null)
 
     try {
       const [m, r, s, n, a] = await Promise.all([
-        getJson(`/api/market/quote?symbol=${encodeURIComponent(symbol)}`),
-        getJson(`/api/research/reports?symbol=${encodeURIComponent(symbol)}&limit=8`),
-        getJson(`/api/signals/overview?symbol=${encodeURIComponent(symbol)}`),
-        getJson(`/api/news/stock?symbol=${encodeURIComponent(symbol)}&limit=8`),
-        getJson(`/api/announcements/stock?symbol=${encodeURIComponent(symbol)}&limit=8`),
+        getJson(`/api/market/quote?symbol=${encodeURIComponent(activeSymbol)}`),
+        getJson(`/api/research/reports?symbol=${encodeURIComponent(activeSymbol)}&limit=8`),
+        getJson(`/api/signals/overview?symbol=${encodeURIComponent(activeSymbol)}`),
+        getJson(`/api/news/stock?symbol=${encodeURIComponent(activeSymbol)}&limit=8`),
+        getJson(`/api/announcements/stock?symbol=${encodeURIComponent(activeSymbol)}&limit=8`),
       ])
 
       setMarket(m)
@@ -141,7 +261,7 @@ function App() {
       setAnnouncements(a)
 
       const aiResult = await postJson('/api/ai/conviction', {
-        symbol,
+        symbol: activeSymbol,
         market: m,
         research: r,
         signals: s,
@@ -159,6 +279,7 @@ function App() {
   }
 
   React.useEffect(() => {
+    setSuggestions(matchStocks(searchText))
     run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -179,12 +300,35 @@ function App() {
         </div>
 
         <div className="search-box">
-          <input
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            placeholder="输入A股代码，例如 600519"
-          />
-          <button onClick={run} disabled={loading}>
+          <div className="search-input-wrap">
+            <Search size={16} className="search-icon" />
+            <input
+              value={searchText}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              onFocus={() => {
+                setSuggestions(matchStocks(searchText))
+                setShowDropdown(true)
+              }}
+              onBlur={() => setTimeout(() => setShowDropdown(false), 160)}
+              placeholder="搜索代码 / 中文 / 拼音首字母，例如 600519、贵州茅台、gzmt"
+            />
+
+            {showDropdown && suggestions.length > 0 && (
+              <div className="search-dropdown">
+                {suggestions.map((s) => (
+                  <button key={s.symbol} type="button" onMouseDown={() => selectStock(s)}>
+                    <span>
+                      <strong>{s.name}</strong>
+                      <em>{s.py}</em>
+                    </span>
+                    <b>{s.symbol}</b>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => run()} disabled={loading}>
             {loading ? '分析中...' : '运行分析'}
           </button>
         </div>
@@ -236,7 +380,7 @@ function App() {
           subtitle="券商研报、PDF、EPS预测、一致预期"
         >
           <div id="research" />
-          <JsonBlock data={research?.reports?.slice?.(0, 3) || research?.forecasts?.slice?.(0, 3) || research || {}} />
+          <ResearchPanel research={research} />
         </LayerCard>
 
         <LayerCard
@@ -294,11 +438,20 @@ function App() {
 
               {radarData.length > 0 && (
                 <div className="radar-wrap">
-                  <ResponsiveContainer width="100%" height={260}>
-                    <RadarChart data={radarData}>
-                      <PolarGrid />
-                      <PolarAngleAxis dataKey="factor" />
-                      <Radar dataKey="score" fillOpacity={0.3} />
+                  <ResponsiveContainer width="100%" height={300}>
+                    <RadarChart data={radarData} outerRadius="72%">
+                      <PolarGrid stroke="#52525b" radialLines={true} />
+                      <PolarAngleAxis dataKey="factor" tick={{ fill: '#d4d4d8', fontSize: 12 }} />
+                      <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#71717a', fontSize: 10 }} />
+                      <Radar
+                        name="Conviction"
+                        dataKey="score"
+                        stroke="#ff5b24"
+                        strokeWidth={3}
+                        fill="#ff5b24"
+                        fillOpacity={0.38}
+                        dot={{ fill: '#fff', r: 3 }}
+                      />
                     </RadarChart>
                   </ResponsiveContainer>
                 </div>
