@@ -14,9 +14,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 伪装得更像一个真实的浏览器
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*'
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Connection': 'keep-alive'
 }
 
 def get_client():
@@ -26,8 +29,6 @@ def get_client():
 @app.get("/api/market/quote")
 async def get_quote(symbol: str):
     prefix = 'sh' if symbol.startswith('6') else 'sz'
-    
-    # 首选：腾讯财经
     url_tencent = f"https://qt.gtimg.cn/q={prefix}{symbol}"
     async with get_client() as client:
         try:
@@ -41,40 +42,19 @@ async def get_quote(symbol: str):
                     }
         except Exception:
             pass
-
-    # 备选：新浪财经
-    url_sina = f"https://hq.sinajs.cn/list={prefix}{symbol}"
-    async with get_client() as client:
-        try:
-            r = await client.get(url_sina, headers={'Referer': 'https://finance.sina.com.cn/', **HEADERS})
-            if r.status_code == 200 and '=' in r.text:
-                data = re.search(r'="(.*)"', r.text).group(1).split(',')
-                if len(data) > 3:
-                    price = float(data[3])
-                    prev_close = float(data[2])
-                    change = ((price - prev_close) / prev_close) * 100 if prev_close else 0
-                    return {
-                        "symbol": symbol, "name": data[0], "price": price,
-                        "change_pct": round(change, 2), "source": "新浪财经", "data_status": "real"
-                    }
-        except Exception:
-            pass
-
     raise HTTPException(status_code=404, detail="行情源失效")
 
-# ================= 2. 搜索接口 (已修复 Unicode 乱码) =================
+# ================= 2. 搜索接口 =================
 @app.get("/api/search/stocks")
 async def search_stocks(q: str):
     url = f"https://smartbox.gtimg.cn/s3/?v=2&q={q}&t=all"
     async with get_client() as client:
         try:
             r = await client.get(url, headers=HEADERS)
-            # 强制解码 Unicode 逃逸字符 (例如 \u91d1\u8fbe\u5a01 -> 金达威)
             try:
                 raw_text = codecs.decode(r.text, 'unicode_escape')
             except:
                 raw_text = r.text
-                
             match = re.search(r'v_hint="(.*)"', raw_text)
             if not match: return {"items": []}
             raw = match.group(1).split('^')
@@ -87,81 +67,86 @@ async def search_stocks(q: str):
         except:
             return {"items": []}
 
-# ================= 3. 新闻层 (已修复 NoneType 报错) =================
+# ================= 3. 新闻层 =================
 @app.get("/api/news/stock")
 async def get_news(symbol: str):
     prefix = 'sh' if symbol.startswith('6') else 'sz'
     error_msg = ""
     
-    # 首选：百度股市通
+    # 百度股市通
     url_baidu = f"https://finance.pae.baidu.com/vapi/v1/getnewsinfo?code={prefix}{symbol}&rn=8"
     async with get_client() as client:
         try:
             r = await client.get(url_baidu, headers={'Referer': 'https://gupiao.baidu.com/', **HEADERS})
-            data = r.json()
-            # 严格类型检查，防止 NoneType .get() 报错
-            result_node = data.get('Result')
-            if isinstance(result_node, dict):
-                items = result_node.get('list', [])
-                if items:
-                    return {
-                        "symbol": symbol,
-                        "items": [{"title": i.get('title',''), "source": i.get('source','百度股市通'), "date": i.get('time',''), "url": i.get('url','')} for i in items],
-                        "source": "百度股市通",
-                        "data_status": "real"
-                    }
+            if r.status_code == 200:
+                data = r.json()
+                if isinstance(data, dict) and isinstance(data.get('Result'), dict):
+                    items = data['Result'].get('list', [])
+                    if items:
+                        return {
+                            "symbol": symbol,
+                            "items": [{"title": i.get('title',''), "source": i.get('source','百度'), "date": i.get('time',''), "url": i.get('url','')} for i in items],
+                            "source": "百度股市通", "data_status": "real"
+                        }
+            else:
+                error_msg += f"[Baidu HTTP {r.status_code}] "
         except Exception as e:
-            error_msg += f"Baidu err: {str(e)}"
-            
-    # 备选：东方财富搜索 API
+            error_msg += f"[Baidu Err] "
+
+    # 东方财富搜索 API
     url_east = f"https://search-api-web.eastmoney.com/search/jsonp?keyword={symbol}&pageIndex=1&pageSize=8"
     async with get_client() as client:
         try:
             r = await client.get(url_east, headers=HEADERS)
-            match = re.search(r'\{.*\}', r.text)
+            # 使用 [\s\S]* 允许跨行匹配 JSON
+            match = re.search(r'\{[\s\S]*\}', r.text)
             if match:
                 data = json.loads(match.group(0))
-                # 严格类型检查
-                result_node = data.get('result')
-                if isinstance(result_node, dict):
-                    rows = result_node.get('data', [])
+                if isinstance(data, dict) and isinstance(data.get('result'), dict):
+                    rows = data['result'].get('data', [])
                     if rows:
                         return {
                             "symbol": symbol,
-                            "items": [{"title": x.get('title','').replace('<font color=red>','').replace('</font>',''), "source": x.get('source', '东方财富'), "date": x.get('date'), "url": x.get('url')} for x in rows],
-                            "source": "东方财富 API",
-                            "data_status": "real"
+                            "items": [{"title": x.get('title','').replace('<font color=red>','').replace('</font>',''), "source": x.get('source', '东财'), "date": x.get('date'), "url": x.get('url')} for x in rows],
+                            "source": "东方财富", "data_status": "real"
                         }
+            else:
+                error_msg += f"[East NoMatch: {r.text[:50]}]"
         except Exception as e:
-            error_msg += f" | East err: {str(e)}"
+            error_msg += f"[East Err: {str(e)}]"
 
-    return {"items": [], "source": "API Error", "data_status": "fallback", "note": f"新闻数据结构异常或被拦截: {error_msg}"}
+    return {"items": [], "source": "API Error", "data_status": "fallback", "note": f"抓取失败详情: {error_msg}"}
 
-# ================= 4. 公告层 (已修复 str 报错) =================
+# ================= 4. 公告层 (改用最稳的东财直连接口) =================
 @app.get("/api/announcements/stock")
 async def get_announcements(symbol: str):
-    prefix = 'sh' if symbol.startswith('6') else 'sz'
-    url = f"https://proxy.finance.qq.com/ifzq/appnews/app/news/list/symbol?symbol={prefix}{symbol}&type=2&page=1&limit=8"
+    # 东方财富官方底层公告接口 (抗拦截能力强)
+    url = f"https://np-anotice-stock.eastmoney.com/api/security/ann?page_size=8&page_index=1&ann_type=A&client_source=web&stock_list={symbol}"
     async with get_client() as client:
         try:
-            r = await client.get(url, headers=HEADERS)
+            r = await client.get(url, headers={'Referer': 'https://data.eastmoney.com/', **HEADERS})
+            if r.status_code != 200:
+                return {"items": [], "source": "HTTP Error", "data_status": "fallback", "note": f"HTTP状态码: {r.status_code}"}
+                
             data = r.json()
-            # 严格类型检查，防止 data 节点返回的是一个字符串报错
-            data_node = data.get('data')
-            if isinstance(data_node, dict):
-                rows = data_node.get('news', [])
+            if isinstance(data, dict) and isinstance(data.get('data'), dict):
+                rows = data['data'].get('list', [])
                 if rows:
                     return {
                         "symbol": symbol,
                         "items": [{
-                            "title": x.get('title'), "type": "公司公告", "date": x.get('publish_time'),
-                            "url": x.get('url'), "summary": x.get('desc') or x.get('title')
+                            "title": x.get('title'),
+                            "type": x.get('ann_type_desc', '公司公告'),
+                            "date": x.get('notice_date')[:10] if x.get('notice_date') else '',
+                            "url": f"https://data.eastmoney.com/notices/detail/{symbol}/{x.get('art_code')}.html" if x.get('art_code') else '',
+                            "summary": x.get('title')
                         } for x in rows],
-                        "source": "腾讯财经", "data_status": "real"
+                        "source": "东方财富数据源", "data_status": "real"
                     }
-            return {"items": [], "source": "Fallback", "data_status": "fallback", "note": f"接口未返回标准格式，可能被软拦截。原始返回类型: {type(data_node).__name__}"}
+            # 如果解析失败，把服务器到底回了啥打印出来
+            return {"items": [], "source": "Data Error", "data_status": "fallback", "note": f"异常返回体: {str(data)[:80]}"}
         except Exception as e:
-             return {"items": [], "source": "Fallback", "data_status": "fallback", "note": f"腾讯公告解析超时或失败: {str(e)}"}
+             return {"items": [], "source": "Code Error", "data_status": "fallback", "note": f"解析异常: {str(e)}"}
 
 # ================= 5 & 6. 研报与信号层 (占位) =================
 @app.get("/api/research/reports")
@@ -192,9 +177,9 @@ async def ai_conviction(request: Request):
             "signal_layer": random.randint(40, 80), "news_layer": random.randint(40, 80),
             "announcement_layer": random.randint(40, 80),
         },
-        "bull_case": ["前端与 FastAPI 后端连通测试成功", "安全字典解析已部署"],
-        "bear_case": ["研报和信号数据暂时使用占位符", "海外节点高频访问可能导致降级"],
-        "final_summary": f"A股代码 {symbol} 分析就绪。搜索乱码与层级崩溃异常已修复。",
+        "bull_case": ["东财直连公告源已部署", "多行 JSONP 解析器修复完成"],
+        "bear_case": ["若海外 IP 持续被风控，建议挂载代理"],
+        "final_summary": f"A股代码 {symbol} 分析就绪。系统已实装异常透传机制，任何拦截都将在界面上明文显示。",
         "risk_warning": "仅用于技术演示",
         "data_status": "ai-generated", "source": "Local Python Mock"
     }
