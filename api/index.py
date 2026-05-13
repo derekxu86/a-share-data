@@ -54,17 +54,17 @@ async def search_stocks(q: str):
 
 @app.get("/api/news/stock")
 async def get_news(symbol: str):
-    # 使用东财搜索API，并加入极端防御性解析
     url_east = f"https://search-api-web.eastmoney.com/search/jsonp?keyword={symbol}&pageIndex=1&pageSize=8"
     async with get_client() as client:
         try:
             r = await client.get(url_east, headers=HEADERS)
-            # 正则强行提取大括号内的内容，忽略外面的乱码或HTML
             match = re.search(r'\{[\s\S]*\}', r.text)
             if match:
                 try:
                     data = json.loads(match.group(0))
-                    rows = data.get('result', {}).get('data', [])
+                    # 终极安全提取：确保 result_node 不是 None
+                    result_node = data.get('result') or {}
+                    rows = result_node.get('data') or []
                     if rows:
                         return {
                             "symbol": symbol,
@@ -72,8 +72,8 @@ async def get_news(symbol: str):
                             "source": "东财搜索API", "data_status": "real"
                         }
                 except json.JSONDecodeError:
-                    return {"items": [], "data_status": "fallback", "note": f"非标准JSON数据: {match.group(0)[:60]}"}
-            return {"items": [], "data_status": "fallback", "note": f"拦截或无数据: {r.text[:60]}"}
+                    return {"items": [], "data_status": "fallback", "note": "JSON 解析失败"}
+            return {"items": [], "data_status": "fallback", "note": "未匹配到新闻数据"}
         except Exception as e:
             return {"items": [], "data_status": "fallback", "note": f"网络异常: {str(e)}"}
 
@@ -105,13 +105,21 @@ async def get_signals(symbol: str):
 
 @app.post("/api/ai/conviction")
 async def ai_conviction(request: Request):
+    # 修复：确保安全解析 payload
+    try:
+        payload = await request.json()
+    except:
+        payload = {}
+        
+    symbol = payload.get("symbol", "000000")
+    
     import random
     score = random.randint(55, 85)
     return {
         "conviction_score": score, "view": "Watchlist" if score > 70 else "Neutral", "market_regime": "波动观察期",
         "factor_scores": {"quote_layer": random.randint(40, 90), "research_layer": 50, "signal_layer": 50, "news_layer": random.randint(40, 90), "announcement_layer": random.randint(40, 90)},
-        "bull_case": ["东财/腾讯多源数据链运转正常", "Vercel 海外 IP 拦截已通过 JSONP 绕过", "前端雷达图可视化修复完成"],
+        "bull_case": ["东财/腾讯多源数据链运转正常", "后端 500 崩溃问题已彻底修复", "空字典安全穿透已部署"],
         "bear_case": ["研报层仍需接入 PDF 解析", "AI 层目前为本地模拟"],
-        "final_summary": f"A股代码 {payload.get('symbol', '000000')} 系统运行正常。全面防护机制已实装，不再引发后端崩溃。",
+        "final_summary": f"A股代码 {symbol} 系统运行正常。AI总结层与雷达图可视化已满血复活！",
         "risk_warning": "仅用于技术演示", "data_status": "ai-generated", "source": "Local Python Mock"
     }
