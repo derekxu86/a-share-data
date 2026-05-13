@@ -1,96 +1,62 @@
-# AI Conviction Engine
+# AI Conviction Engine - Vercel Stable Node Version
 
-A股 AI 投研决策引擎原型。  
-结构参考：行情层、研报层、信号层、新闻层、公告层、AI 总结层。
+这是一个适合直接部署到 Vercel 的 A股 AI 投研决策引擎原型。
 
-> 本项目仅用于学习、研究和产品原型展示，不构成任何投资建议。
-
-## Vercel 友好结构
+这个版本已经移除 Python / FastAPI / AkShare，改成 Vercel 原生 Node.js Serverless API，主要解决：
 
 ```text
-ai-conviction-engine/
+This Serverless Function has crashed
+FUNCTION_INVOCATION_FAILED
+```
+
+## 为什么改成 Node.js？
+
+Vercel 对 Python 金融数据包依赖比较敏感，AkShare / pandas / Tushare / FastAPI 组合容易出现 build 或 runtime 问题。  
+Node.js API 在 Vercel 上更稳定。
+
+## 项目结构
+
+```text
+.
 ├── api/
-│   ├── index.py              Vercel Python / FastAPI 入口
-│   └── app/
-│       ├── config.py
-│       ├── routers/
-│       ├── services/
-│       └── utils/
-├── src/                      React 前端
+│   ├── health.js
+│   ├── _utils.js
+│   ├── market/
+│   │   ├── quote.js
+│   │   └── kline.js
+│   ├── research/
+│   │   └── reports.js
+│   ├── signals/
+│   │   └── overview.js
+│   ├── news/
+│   │   ├── global.js
+│   │   ├── latest.js
+│   │   └── stock.js
+│   ├── announcements/
+│   │   └── stock.js
+│   └── ai/
+│       └── conviction.js
+├── src/
 ├── index.html
 ├── package.json
-├── requirements.txt          Python dependencies
 ├── vercel.json
-├── vite.config.ts
 └── .env.example
 ```
 
-## 数据层
+## Vercel Environment Variables
 
-| Layer | 功能 | 默认数据源 |
-|---|---|---|
-| 行情层 | K线、报价、估值、盘口 | AkShare + Tushare 增强 |
-| 研报层 | 研报列表、PDF、EPS预测 | AkShare / 东方财富思路 |
-| 信号层 | 北向资金、资金流、龙虎榜、行业排名 | AkShare + Tushare 增强 |
-| 新闻层 | 财经快讯、个股新闻、全球新闻 | AkShare + Finnhub |
-| 公告层 | 公司公告、财报、交易所公告 | 巨潮 / AkShare 思路 |
-| AI总结层 | Conviction Score、Bull/Bear Case | OpenAI |
-
-## Vercel 部署
-
-### 1. 推送到 GitHub
-
-```bash
-git init
-git add .
-git commit -m "Initial AI Conviction Engine"
-git branch -M main
-git remote add origin https://github.com/你的用户名/ai-conviction-engine.git
-git push -u origin main
-```
-
-### 2. 在 Vercel 导入 GitHub repo
-
-Framework Preset 选择：
-
-```text
-Vite
-```
-
-Vercel 会使用：
-
-```text
-Build Command: npm run build
-Output Directory: dist
-```
-
-### 3. 在 Vercel 添加 Environment Variables
-
-不要把真实 key 写进 GitHub。  
 在 Vercel Project Settings → Environment Variables 添加：
 
 ```env
 OPENAI_API_KEY=你的新OpenAI key
 TUSHARE_TOKEN=你的Tushare token
 FINNHUB_API_KEY=你的Finnhub key
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MODEL=gpt-4o-mini
 ```
 
-可选：
+## API 测试
 
-```env
-ALLOWED_ORIGINS=*
-```
-
-生产环境建议改成你的 Vercel 域名，例如：
-
-```env
-ALLOWED_ORIGINS=https://your-project.vercel.app
-```
-
-### 4. 测试 API
-
-部署后访问：
+部署后先打开：
 
 ```text
 https://你的域名.vercel.app/api/health
@@ -102,182 +68,28 @@ https://你的域名.vercel.app/api/health
 {
   "name": "AI Conviction Engine",
   "status": "ok",
-  "runtime": "vercel-python"
+  "runtime": "vercel-node",
+  "api": "stable"
 }
 ```
 
-## 本地运行
+## 已接入
 
-### 前端
-
-```bash
-npm install
-npm run dev
-```
-
-### 后端本地测试
-
-```bash
-pip install -r requirements.txt
-uvicorn api.index:app --reload --port 8000
-```
-
-本地如果前端要连本地后端，可以建 `.env.local`：
-
-```env
-VITE_API_BASE=http://localhost:8000
-```
-
-## 主要 API
-
-```http
-GET  /api/health
-GET  /api/market/quote?symbol=600519
-GET  /api/market/kline?symbol=600519&period=daily
-
-GET  /api/research/reports?symbol=600519
-GET  /api/signals/overview?symbol=600519
-GET  /api/news/stock?symbol=600519
-GET  /api/news/global
-GET  /api/announcements/stock?symbol=600519
-
-POST /api/ai/conviction
-```
-
-## Key 用途
-
-| Key | 用途 | 是否必须 |
+| Layer | Endpoint | 数据源 |
 |---|---|---|
-| `OPENAI_API_KEY` | AI总结、Conviction Score、Bull/Bear Case | 必须 |
-| `TUSHARE_TOKEN` | A股估值、资金流、基础数据增强 | 建议 |
-| `FINNHUB_API_KEY` | 全球新闻、后续美股/全球市场扩展 | 可选 |
+| 健康检查 | `/api/health` | 本地 |
+| 行情层 | `/api/market/quote?symbol=600519` | 东方财富 push2 + Tushare 增强 |
+| K线层 | `/api/market/kline?symbol=600519` | Tushare daily |
+| 信号层 | `/api/signals/overview?symbol=600519` | Tushare moneyflow |
+| 研报层 | `/api/research/reports?symbol=600519` | Tushare forecast placeholder |
+| 新闻层 | `/api/news/global` | Finnhub |
+| 公告层 | `/api/announcements/stock?symbol=600519` | 占位 |
+| AI总结 | `/api/ai/conviction` | OpenAI |
 
 ## 注意
 
-如果 key 曾经出现在聊天、截图、公开仓库或前端代码中，请立即 rotate。  
-本项目不做自动交易、不做下单、不做荐股，只做研究和决策辅助。
-
-
-## Vercel Build Troubleshooting
-
-本项目已加入：
-
-```text
-.python-version
-```
-
-内容为：
-
-```text
-3.11
-```
-
-原因是部分金融数据 Python 库在 Vercel 默认 Python 3.12 下可能安装失败。
-
-当前 Vercel 版本暂时移除了 `mootdx` 依赖。  
-原因：
-
-- `mootdx` 走通达信 TCP 7709，更适合本地服务器 / VPS / Railway 后端
-- Vercel serverless 更适合 HTTP API
-- 第一版线上部署优先使用 AkShare + Tushare + Finnhub + OpenAI
-
-如果以后要稳定接 mootdx，建议把后端部署到：
-
-```text
-Railway
-Render
-Fly.io
-VPS
-```
-
-然后前端仍然放 Vercel。
-
-
-## Current Vercel Fix
-
-如果 Vercel 报：
-
-```text
-Because there is no version of akshare==1.15.97
-```
-
-说明 requirements.txt 不应该锁死这个不存在或不可解析的版本。
-
-本版本已经改为：
-
-```text
-akshare
-tushare
-```
-
-不再锁死具体版本。
-
-请确认 GitHub 根目录有这些文件：
-
-```text
-.python-version
-pyproject.toml
-requirements.txt
-package.json
-vercel.json
-api/index.py
-```
-
-其中 `.python-version` 的内容必须是：
-
-```text
-3.11
-```
-
-
-## Vercel Fix: vite command not found
-
-如果 Vercel 报：
-
-```text
-sh: line 1: vite: command not found
-Error: Command "npm run build" exited with 127
-```
-
-原因是前端依赖没有安装。
-
-本版本已在 `vercel.json` 中加入：
-
-```json
-"installCommand": "npm install"
-```
-
-并把 `vite` 放进 `devDependencies`。
-
-
-## Vercel Fix: Serverless Function has crashed
-
-如果页面或 `/api/health` 显示：
-
-```text
-This Serverless Function has crashed
-500 INTERNAL_SERVER_ERROR
-FUNCTION_INVOCATION_FAILED
-```
-
-常见原因是 Python 依赖没有安装成功。
-
-本版本已删除 `pyproject.toml`，让 Vercel 使用根目录的：
-
-```text
-requirements.txt
-```
-
-安装 FastAPI / OpenAI / AkShare / Tushare 等依赖。
-
-重新部署后，Build Logs 里应该出现：
-
-```text
-Installing required dependencies from requirements.txt
-```
-
-而不是：
-
-```text
-Installing required dependencies from pyproject.toml
-```
+- 这个版本以“稳定部署”为优先。
+- 没有 Python 依赖，不会再出现 Python Serverless crash。
+- AkShare / mootdx 如果以后要做，建议单独放到 Railway / Render / VPS 后端。
+- Vercel 只做前端 + 轻量 API。
+- 本项目仅用于研究和教育演示，不构成投资建议。
