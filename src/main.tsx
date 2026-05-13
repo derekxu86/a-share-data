@@ -35,6 +35,14 @@ function DataStatus({ data }: { data: any }) {
   return <span className={`data-status ${cls}`}>{txt}</span>
 }
 
+function scoreToRadar(factorScores: any) {
+  if (!factorScores || typeof factorScores !== 'object') return []
+  return Object.entries(factorScores).map(([name, value]) => ({
+    factor: String(name).replaceAll('_', ' '),
+    score: Number(value || 0),
+  }))
+}
+
 function ResearchPanel({ research }: { research: any }) {
   const reports = ensureArray(research?.reports)
   if (!research) return <p className="muted">暂无数据</p>
@@ -53,7 +61,7 @@ function SignalPanel({ signals }: { signals: any }) {
   if (!signals) return <p className="muted">暂无数据</p>
   return (
     <div className="research-list">
-      <DataStatus data={signals} /> {/* FIXED */}
+      <DataStatus data={signals} />
       {items.length > 0 ? items.slice(0, 3).map((x: any, i: number) => (
         <div className="mini-card" key={i}><strong>{safeText(x.label)}</strong><p>{safeText(x.value)}</p></div>
       )) : <div className="empty-card"><strong>暂无数据</strong><p>{signals.note || '信号层开发中'}</p></div>}
@@ -66,7 +74,7 @@ function SimpleItemsPanel({ data, emptyTitle }: { data: any, emptyTitle: string 
   if (!data) return <p className="muted">暂无数据</p>
   return (
     <div className="research-list">
-      <DataStatus data={data} /> {/* FIXED */}
+      <DataStatus data={data} />
       {items.length > 0 ? items.slice(0, 3).map((x: any, i: number) => (
         <div className="mini-card" key={i}><strong>{safeText(x.title || x.label)}</strong><p>{safeText(x.summary || x.source)}</p></div>
       )) : <div className="empty-card"><strong>{emptyTitle}</strong><p>{data.note || '暂无内容'}</p></div>}
@@ -104,6 +112,10 @@ function App() {
   }
 
   React.useEffect(() => { run() }, [])
+
+  const radarData = scoreToRadar(ai?.factor_scores)
+  const bullCase = ensureArray(ai?.bull_case)
+  const bearCase = ensureArray(ai?.bear_case)
 
   return (
     <div className="app">
@@ -158,7 +170,27 @@ function App() {
             <div className="ai-summary">
               <DataStatus data={ai} />
               <div className="score-row"><div className="score">{ai.conviction_score}</div><div><h3>{ai.view}</h3><p>{ai.market_regime}</p></div></div>
+              
+              {radarData.length > 0 && (
+                <div className="radar-wrap">
+                  <ResponsiveContainer width="100%" height={300}>
+                    <RadarChart data={radarData} outerRadius="72%">
+                      <PolarGrid stroke="#52525b" radialLines={true} />
+                      <PolarAngleAxis dataKey="factor" tick={{ fill: '#d4d4d8', fontSize: 12 }} />
+                      <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#71717a', fontSize: 10 }} />
+                      <Radar name="Conviction" dataKey="score" stroke="#ff5b24" strokeWidth={3} fill="#ff5b24" fillOpacity={0.38} dot={{ fill: '#fff', r: 3 }} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              <div className="cases">
+                <div><h4>Bull Case</h4>{bullCase.length > 0 ? <ul>{bullCase.map((x, i) => <li key={i}>{x}</li>)}</ul> : <p className="muted">暂无正面理由</p>}</div>
+                <div><h4>Bear Case</h4>{bearCase.length > 0 ? <ul>{bearCase.map((x, i) => <li key={i}>{x}</li>)}</ul> : <p className="muted">暂无风险提示</p>}</div>
+              </div>
+
               <p className="final">{ai.final_summary}</p>
+              <p className="risk">{ai.risk_warning}</p>
             </div>
           )}
         </section>
