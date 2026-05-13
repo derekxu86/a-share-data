@@ -24,11 +24,65 @@ async function postJson(path: string, body: Json) {
   return res.json()
 }
 
-function scoreToRadar(factorScores: Json = {}) {
-  return Object.entries(factorScores).map(([name, value]) => ({
-    factor: name.replaceAll('_', ' '),
-    score: Number(value || 0),
-  }))
+function safeArray(value: any): string[] {
+  if (Array.isArray(value)) return value.map((x) => String(x))
+  if (typeof value === 'string' && value.trim()) return [value]
+  return []
+}
+
+function safeText(value: any, fallback = '--') {
+  if (value === null || value === undefined || value === '') return fallback
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function safeNumber(value: any, fallback = '--') {
+  const n = Number(value)
+  return Number.isFinite(n) ? String(n) : fallback
+}
+
+function scoreToRadar(factorScores: any) {
+  if (!factorScores || typeof factorScores !== 'object' || Array.isArray(factorScores)) {
+    return []
+  }
+
+  return Object.entries(factorScores)
+    .map(([name, value]) => ({
+      factor: String(name).replaceAll('_', ' '),
+      score: Number(value || 0),
+    }))
+    .filter((x) => Number.isFinite(x.score))
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; message: string }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false, message: '' }
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, message: error?.message || 'Unknown frontend error' }
+  }
+
+  componentDidCatch(error: any) {
+    console.error('Frontend crashed:', error)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="app">
+          <div className="error">
+            <strong>前端渲染出错，但页面没有黑屏。</strong>
+            <pre>{this.state.message}</pre>
+            <p>请刷新页面，或检查 API 返回的数据格式。</p>
+          </div>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
 }
 
 function LayerCard(props: {
@@ -52,7 +106,7 @@ function LayerCard(props: {
 }
 
 function JsonBlock({ data }: { data: any }) {
-  return <pre className="json-block">{JSON.stringify(data, null, 2)}</pre>
+  return <pre className="json-block">{JSON.stringify(data ?? {}, null, 2)}</pre>
 }
 
 function App() {
@@ -70,14 +124,16 @@ function App() {
     setLoading(true)
     setError('')
     setAi(null)
+
     try {
       const [m, r, s, n, a] = await Promise.all([
-        getJson(`/api/market/quote?symbol=${symbol}`),
-        getJson(`/api/research/reports?symbol=${symbol}&limit=8`),
-        getJson(`/api/signals/overview?symbol=${symbol}`),
-        getJson(`/api/news/stock?symbol=${symbol}&limit=8`),
-        getJson(`/api/announcements/stock?symbol=${symbol}&limit=8`),
+        getJson(`/api/market/quote?symbol=${encodeURIComponent(symbol)}`),
+        getJson(`/api/research/reports?symbol=${encodeURIComponent(symbol)}&limit=8`),
+        getJson(`/api/signals/overview?symbol=${encodeURIComponent(symbol)}`),
+        getJson(`/api/news/stock?symbol=${encodeURIComponent(symbol)}&limit=8`),
+        getJson(`/api/announcements/stock?symbol=${encodeURIComponent(symbol)}&limit=8`),
       ])
+
       setMarket(m)
       setResearch(r)
       setSignals(s)
@@ -92,8 +148,10 @@ function App() {
         news: n,
         announcements: a,
       })
-      setAi(aiResult)
+
+      setAi(aiResult || {})
     } catch (e: any) {
+      console.error(e)
       setError(e.message || 'Request failed')
     } finally {
       setLoading(false)
@@ -106,6 +164,8 @@ function App() {
   }, [])
 
   const radarData = scoreToRadar(ai?.factor_scores)
+  const bullCase = safeArray(ai?.bull_case)
+  const bearCase = safeArray(ai?.bear_case)
 
   return (
     <div className="app">
@@ -152,19 +212,19 @@ function App() {
             <div className="quote">
               <div>
                 <span className="muted">股票</span>
-                <strong>{market.name || market.symbol}</strong>
+                <strong>{safeText(market.name || market.symbol)}</strong>
               </div>
               <div>
                 <span className="muted">价格</span>
-                <strong>{market.price}</strong>
+                <strong>{safeNumber(market.price)}</strong>
               </div>
               <div>
                 <span className="muted">涨跌幅</span>
-                <strong>{market.change_pct}%</strong>
+                <strong>{safeNumber(market.change_pct)}%</strong>
               </div>
               <div>
                 <span className="muted">来源</span>
-                <strong>{market.source}</strong>
+                <strong>{safeText(market.source)}</strong>
               </div>
             </div>
           ) : <p className="muted">暂无数据</p>}
@@ -176,7 +236,7 @@ function App() {
           subtitle="券商研报、PDF、EPS预测、一致预期"
         >
           <div id="research" />
-          <JsonBlock data={research?.reports?.slice?.(0, 3) || research} />
+          <JsonBlock data={research?.reports?.slice?.(0, 3) || research?.forecasts?.slice?.(0, 3) || research || {}} />
         </LayerCard>
 
         <LayerCard
@@ -187,9 +247,10 @@ function App() {
           <div id="signals" />
           <JsonBlock data={{
             money_flow_source: signals?.money_flow?.source,
+            money_flow_count: signals?.money_flow?.items?.length || 0,
             northbound_source: signals?.northbound?.source,
-            dragon_tiger_count: signals?.dragon_tiger?.items?.length,
-            sector_count: signals?.sector_ranking?.items?.length
+            dragon_tiger_count: signals?.dragon_tiger?.items?.length || 0,
+            sector_count: signals?.sector_ranking?.items?.length || 0
           }} />
         </LayerCard>
 
@@ -199,7 +260,7 @@ function App() {
           subtitle="快讯、个股新闻、AI新闻摘要"
         >
           <div id="news" />
-          <JsonBlock data={news?.items?.slice?.(0, 3) || news} />
+          <JsonBlock data={news?.items?.slice?.(0, 3) || news || {}} />
         </LayerCard>
 
         <LayerCard
@@ -208,7 +269,7 @@ function App() {
           subtitle="公司公告、财报、交易所公告"
         >
           <div id="announcements" />
-          <JsonBlock data={announcements?.items?.slice?.(0, 3) || announcements} />
+          <JsonBlock data={announcements?.items?.slice?.(0, 3) || announcements || {}} />
         </LayerCard>
 
         <LayerCard
@@ -222,12 +283,12 @@ function App() {
               <div className="score-row">
                 <div>
                   <p className="muted">Conviction Score</p>
-                  <div className="score">{ai.conviction_score}</div>
+                  <div className="score">{safeNumber(ai.conviction_score, 'N/A')}</div>
                 </div>
                 <div>
                   <p className="muted">View</p>
-                  <h3>{ai.view}</h3>
-                  <p>{ai.market_regime}</p>
+                  <h3>{safeText(ai.view, 'Watchlist')}</h3>
+                  <p>{safeText(ai.market_regime, 'Unknown')}</p>
                 </div>
               </div>
 
@@ -246,16 +307,20 @@ function App() {
               <div className="cases">
                 <div>
                   <h4>Bull Case</h4>
-                  <ul>{ai.bull_case?.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul>
+                  {bullCase.length > 0 ? (
+                    <ul>{bullCase.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                  ) : <p className="muted">暂无正面理由</p>}
                 </div>
                 <div>
                   <h4>Bear Case</h4>
-                  <ul>{ai.bear_case?.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul>
+                  {bearCase.length > 0 ? (
+                    <ul>{bearCase.map((x, i) => <li key={i}>{x}</li>)}</ul>
+                  ) : <p className="muted">暂无风险理由</p>}
                 </div>
               </div>
 
-              <p className="final">{ai.final_summary}</p>
-              <p className="risk">{ai.risk_warning}</p>
+              <p className="final">{safeText(ai.final_summary, '暂无总结')}</p>
+              <p className="risk">{safeText(ai.risk_warning, '仅用于研究和教育演示，不构成投资建议。')}</p>
             </div>
           ) : <p className="muted">运行后生成 AI 总结。</p>}
         </LayerCard>
@@ -264,4 +329,8 @@ function App() {
   )
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(<App />)
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+)

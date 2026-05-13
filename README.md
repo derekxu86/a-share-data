@@ -75,3 +75,14 @@ POST /api/ai/conviction
 ## 注意
 
 本项目仅用于研究和教育演示，不构成投资建议。  
+
+
+## Safe UI Fix
+
+如果首页加载一下后黑屏，通常是前端渲染时某个 API 返回格式与预期不同。  
+本版本已加入：
+
+- ErrorBoundary，防止整页黑屏
+- safeArray，防止 `bull_case.map is not a function`
+- safeText / safeNumber，防止对象或空值直接渲染
+- 更稳的 JSON fallback
