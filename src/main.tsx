@@ -139,7 +139,6 @@ function matchStocks(input: string) {
     )
     .slice(0, 8)
 
-  // 支持任意 6 位 A 股代码。即使本地股票池没有，也给一个可选项。
   if (/^\d{6}$/.test(raw) && !matched.some((s) => s.symbol === raw)) {
     matched.unshift({
       symbol: raw,
@@ -150,6 +149,25 @@ function matchStocks(input: string) {
   }
 
   return matched
+}
+
+async function searchStocks(query: string): Promise<StockOption[]> {
+  const q = query.trim()
+  if (!q) return matchStocks(q)
+
+  try {
+    const data = await getJson(`/api/search/stocks?q=${encodeURIComponent(q)}`)
+    const items = Array.isArray(data.items) ? data.items : []
+    return items.map((x: any) => ({
+      symbol: String(x.symbol || ''),
+      name: String(x.name || x.symbol || ''),
+      py: String(x.py || ''),
+      market: String(x.market || '')
+    })).filter((x: StockOption) => x.symbol)
+  } catch (error) {
+    console.error('search failed', error)
+    return matchStocks(q)
+  }
 }
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; message: string }> {
@@ -317,12 +335,14 @@ function App() {
   const [ai, setAi] = React.useState<Json | null>(null)
   const [error, setError] = React.useState<string>('')
 
-  function handleSearchChange(value: string) {
+  async function handleSearchChange(value: string) {
     setSearchText(value)
-    setSuggestions(matchStocks(value))
     setShowDropdown(true)
 
-    const exact = STOCK_OPTIONS.find(
+    const results = await searchStocks(value)
+    setSuggestions(results)
+
+    const exact = results.find(
       (s) => s.symbol === value.trim() || s.name === value.trim() || s.py === value.trim().toLowerCase()
     )
     if (exact) setSymbol(exact.symbol)
@@ -377,7 +397,7 @@ function App() {
   }
 
   React.useEffect(() => {
-    setSuggestions(matchStocks(searchText))
+    searchStocks(searchText).then(setSuggestions)
     run()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -403,8 +423,8 @@ function App() {
             <input
               value={searchText}
               onChange={(e) => handleSearchChange(e.target.value)}
-              onFocus={() => {
-                setSuggestions(matchStocks(searchText))
+              onFocus={async () => {
+                setSuggestions(await searchStocks(searchText))
                 setShowDropdown(true)
               }}
               onKeyDown={(e) => {

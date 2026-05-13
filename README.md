@@ -114,3 +114,15 @@ POST /api/ai/conviction
   - 黄色：Fallback占位
   - 蓝色：接口预留
   - 紫色：AI生成
+
+
+## v3 Real Search
+
+本版本修复：
+
+- 搜索框调用 `/api/search/stocks?q=`
+- 优先使用东方财富全市场股票列表
+- 支持代码、中文名、拼音首字母
+- 如果东方财富股票列表不可用，才 fallback 到本地小股票池
+- 行情层增加新浪财经作为第三行情源：东方财富 → 腾讯财经 → 新浪财经 → fallback
+- 状态标签继续显示真实数据 / fallback / 接口预留

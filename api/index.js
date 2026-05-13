@@ -1,3 +1,5 @@
+import { pinyin } from 'pinyin-pro';
+
 function send(res, status, payload) {
   res.status(status).setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('cache-control', 's-maxage=60, stale-while-revalidate=300');
@@ -21,28 +23,178 @@ function toMarketSymbol(symbol) {
 }
 
 const STOCK_META = {
-  '600519': { name: '贵州茅台', theme: '白酒消费', industry: '食品饮料', basePrice: 1534.5 },
-  '002415': { name: '海康威视', theme: 'AI安防 / 机器视觉', industry: '计算机设备', basePrice: 28.6 },
-  '300750': { name: '宁德时代', theme: '新能源电池', industry: '电力设备', basePrice: 186.2 },
-  '002594': { name: '比亚迪', theme: '新能源汽车', industry: '汽车整车', basePrice: 214.8 },
-  '300059': { name: '东方财富', theme: '互联网券商', industry: '非银金融', basePrice: 13.8 },
-  '601012': { name: '隆基绿能', theme: '光伏', industry: '电力设备', basePrice: 15.2 },
-  '688981': { name: '中芯国际', theme: '半导体制造', industry: '半导体', basePrice: 51.5 },
-  '600036': { name: '招商银行', theme: '银行 / 高股息', industry: '银行', basePrice: 38.1 }
+  '600519': { name: '贵州茅台', py: 'gzmt', theme: '白酒消费', industry: '食品饮料', basePrice: 1534.5 },
+  '002415': { name: '海康威视', py: 'hkws', theme: 'AI安防 / 机器视觉', industry: '计算机设备', basePrice: 28.6 },
+  '002626': { name: '金达威', py: 'jdw', theme: '营养保健 / 辅酶Q10', industry: '食品饮料', basePrice: 36 },
+  '300750': { name: '宁德时代', py: 'ndsd', theme: '新能源电池', industry: '电力设备', basePrice: 186.2 },
+  '002594': { name: '比亚迪', py: 'byd', theme: '新能源汽车', industry: '汽车整车', basePrice: 214.8 },
+  '300059': { name: '东方财富', py: 'dfcf', theme: '互联网券商', industry: '非银金融', basePrice: 13.8 },
+  '601012': { name: '隆基绿能', py: 'ljln', theme: '光伏', industry: '电力设备', basePrice: 15.2 },
+  '688981': { name: '中芯国际', py: 'zxgj', theme: '半导体制造', industry: '半导体', basePrice: 51.5 },
+  '600036': { name: '招商银行', py: 'zsyh', theme: '银行 / 高股息', industry: '银行', basePrice: 38.1 }
 };
 
 function getMeta(symbol) {
   return STOCK_META[symbol] || {
     name: symbol,
+    py: symbol,
     theme: 'A股个股',
     industry: '未分类',
     basePrice: 10 + (Number(symbol.slice(-2)) || 1)
   };
 }
 
+function firstLetters(name) {
+  try {
+    return pinyin(String(name || ''), { pattern: 'first', toneType: 'none', type: 'array' }).join('').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 function pseudo(symbol, min, max) {
   const n = String(symbol).split('').reduce((acc, x) => acc + Number(x || 0), 0);
   return Number((min + (n % 100) / 100 * (max - min)).toFixed(2));
+}
+
+function normalizeStockItem(item, source = 'unknown') {
+  const symbol = String(item.f12 || item.code || item.symbol || '').trim();
+  const name = String(item.f14 || item.name || '').trim();
+  const marketCode = String(item.f13 || '');
+  return {
+    symbol,
+    name: name || symbol,
+    py: firstLetters(name || symbol),
+    market: marketCode === '1' ? 'SH' : 'SZ',
+    source
+  };
+}
+
+async function fetchEastmoneyStockList() {
+  const now = Date.now();
+  const cache = globalThis.__A_STOCK_LIST_CACHE__;
+  if (cache && now - cache.time < 1000 * 60 * 60 * 6) {
+    return cache.items;
+  }
+
+  const url = [
+    'https://push2.eastmoney.com/api/qt/clist/get',
+    '?pn=1',
+    '&pz=6000',
+    '&po=1',
+    '&np=1',
+    '&ut=bd1d9ddb04089700cf9c27f6f7426281',
+    '&fltt=2',
+    '&invt=2',
+    '&fid=f3',
+    '&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23',
+    '&fields=f12,f14,f13,f100,f102'
+  ].join('');
+
+  const r = await fetch(url, {
+    headers: {
+      'user-agent': 'Mozilla/5.0',
+      referer: 'https://quote.eastmoney.com/'
+    }
+  });
+
+  const data = await r.json();
+  const diff = data?.data?.diff || [];
+  if (!Array.isArray(diff) || diff.length === 0) {
+    throw new Error('Eastmoney stock list returned empty');
+  }
+
+  const items = diff
+    .map((x) => normalizeStockItem(x, '东方财富全市场股票列表'))
+    .filter((x) => /^\d{6}$/.test(x.symbol) && x.name);
+
+  globalThis.__A_STOCK_LIST_CACHE__ = { time: now, items };
+  return items;
+}
+
+function fallbackStockSearch(q) {
+  const raw = String(q || '').trim();
+  const lower = raw.toLowerCase();
+  const items = Object.entries(STOCK_META).map(([symbol, meta]) => ({
+    symbol,
+    name: meta.name,
+    py: meta.py || firstLetters(meta.name),
+    market: symbol.startsWith('6') ? 'SH' : 'SZ',
+    source: '本地fallback股票池'
+  }));
+
+  const matched = items.filter((x) =>
+    x.symbol.includes(lower) ||
+    x.name.includes(raw) ||
+    x.py.includes(lower)
+  );
+
+  if (/^\d{6}$/.test(raw) && !matched.some((x) => x.symbol === raw)) {
+    matched.unshift({
+      symbol: raw,
+      name: `A股代码 ${raw}`,
+      py: raw,
+      market: raw.startsWith('6') ? 'SH' : 'SZ',
+      source: '任意6位代码fallback'
+    });
+  }
+
+  return matched.slice(0, 12);
+}
+
+async function handleStockSearch(req, res) {
+  const q = String(req.query.q || '').trim();
+  if (!q) {
+    return send(res, 200, {
+      query: q,
+      items: fallbackStockSearch('').slice(0, 8),
+      data_status: 'fallback',
+      is_fallback: true,
+      source: '本地fallback股票池',
+      note: '请输入代码、中文名或拼音首字母。'
+    });
+  }
+
+  try {
+    const all = await fetchEastmoneyStockList();
+    const lower = q.toLowerCase();
+
+    let items = all.filter((x) =>
+      x.symbol.includes(lower) ||
+      x.name.includes(q) ||
+      x.py.includes(lower)
+    );
+
+    if (/^\d{6}$/.test(q) && !items.some((x) => x.symbol === q)) {
+      items.unshift({
+        symbol: q,
+        name: `A股代码 ${q}`,
+        py: q,
+        market: q.startsWith('6') ? 'SH' : 'SZ',
+        source: '6位代码直通'
+      });
+    }
+
+    return send(res, 200, {
+      query: q,
+      items: items.slice(0, 12),
+      data_status: 'real',
+      is_fallback: false,
+      source: '东方财富全市场股票列表',
+      note: items.length
+        ? '真实股票列表搜索结果。支持代码、中文名、拼音首字母。'
+        : '真实股票列表已查询，但没有匹配结果。'
+    });
+  } catch (error) {
+    return send(res, 200, {
+      query: q,
+      items: fallbackStockSearch(q),
+      data_status: 'fallback',
+      is_fallback: true,
+      source: '本地fallback股票池',
+      note: `真实股票列表接口不可用：${String(error.message || error)}`
+    });
+  }
 }
 
 function demoQuote(symbol, reason = '真实行情接口暂不可用，返回结构化演示数据。') {
@@ -63,9 +215,7 @@ function demoQuote(symbol, reason = '真实行情接口暂不可用，返回结�
     source: 'structured-fallback',
     data_status: 'fallback',
     is_fallback: true,
-    preferred_sources: ['mootdx', '腾讯财经', '东方财富'],
-    data_status: 'fallback',
-    is_fallback: true,
+    preferred_sources: ['东方财富', '腾讯财经', '新浪财经', 'mootdx'],
     note: reason
   };
 }
@@ -129,6 +279,8 @@ function demoSignals(symbol, reason = '同花顺 / 百度股市通 / 东方财�
       items: [{ label: meta.industry, value: `${meta.theme}`, signal: 'theme-map' }],
       source: '百度股市通 / 同花顺 structured-fallback'
     },
+    data_status: 'fallback',
+    is_fallback: true,
     note: reason
   };
 }
@@ -205,25 +357,27 @@ function localConviction(payload) {
     final_summary: `${meta.name}当前适合进入观察池。后续应重点验证：资金流是否持续、行业热度是否扩散、研报预期是否上修、公告是否存在风险。`,
     risk_warning: '仅用于研究和教育演示，不构成投资建议。',
     data_status: 'ai-generated',
-    is_fallback: false
+    is_fallback: false,
+    source: 'OpenAI / local AI fallback'
   };
 }
 
 async function fetchTencentQuote(symbol) {
   const marketSymbol = toMarketSymbol(symbol);
   const url = `https://qt.gtimg.cn/q=${marketSymbol}`;
-  const r = await fetch(url, {
-    headers: { 'user-agent': 'Mozilla/5.0' }
-  });
+  const r = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0' } });
   const text = await r.text();
   const match = text.match(/="(.+)";?$/);
   if (!match) throw new Error('Tencent quote parse failed');
   const parts = match[1].split('~');
 
+  const price = Number(parts[3]);
+  if (!Number.isFinite(price) || price <= 0) throw new Error('Tencent quote returned invalid price');
+
   return {
     symbol,
     name: parts[1] || getMeta(symbol).name,
-    price: Number(parts[3]) || null,
+    price,
     previous_close: Number(parts[4]) || null,
     open: Number(parts[5]) || null,
     volume: Number(parts[6]) || null,
@@ -238,6 +392,43 @@ async function fetchTencentQuote(symbol) {
   };
 }
 
+async function fetchSinaQuote(symbol) {
+  const marketSymbol = toMarketSymbol(symbol);
+  const url = `https://hq.sinajs.cn/list=${marketSymbol}`;
+  const r = await fetch(url, {
+    headers: {
+      'user-agent': 'Mozilla/5.0',
+      referer: 'https://finance.sina.com.cn/'
+    }
+  });
+  const text = await r.arrayBuffer();
+  const decoded = new TextDecoder('gbk').decode(text);
+  const match = decoded.match(/="(.+)";?$/);
+  if (!match) throw new Error('Sina quote parse failed');
+  const parts = match[1].split(',');
+  const price = Number(parts[3]);
+  if (!Number.isFinite(price) || price <= 0) throw new Error('Sina quote returned invalid price');
+
+  const previous = Number(parts[2]) || null;
+  const changePct = previous ? Number((((price - previous) / previous) * 100).toFixed(2)) : null;
+
+  return {
+    symbol,
+    name: parts[0] || getMeta(symbol).name,
+    open: Number(parts[1]) || null,
+    previous_close: previous,
+    price,
+    high: Number(parts[4]) || null,
+    low: Number(parts[5]) || null,
+    volume: Number(parts[8]) || null,
+    amount: Number(parts[9]) || null,
+    change_pct: changePct,
+    source: '新浪财经 hq.sinajs.cn',
+    data_status: 'real',
+    is_fallback: false
+  };
+}
+
 async function fetchEastmoneyQuote(symbol) {
   const fields = [
     'f43','f44','f45','f46','f47','f48','f57','f58','f60',
@@ -245,7 +436,7 @@ async function fetchEastmoneyQuote(symbol) {
   ].join(',');
 
   const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${toSecid(symbol)}&fields=${fields}`;
-  const r = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0' } });
+  const r = await fetch(url, { headers: { 'user-agent': 'Mozilla/5.0', referer: 'https://quote.eastmoney.com/' } });
   const data = await r.json();
   const d = data?.data || {};
   if (!d || Object.keys(d).length === 0) throw new Error('Eastmoney returned empty data');
@@ -262,10 +453,13 @@ async function fetchEastmoneyQuote(symbol) {
     return n / 100;
   }
 
+  const price = scalePrice(d.f43);
+  if (!price) throw new Error('Eastmoney returned invalid price');
+
   return {
     symbol,
     name: d.f58 || getMeta(symbol).name,
-    price: scalePrice(d.f43),
+    price,
     open: scalePrice(d.f46),
     high: scalePrice(d.f44),
     low: scalePrice(d.f45),
@@ -299,19 +493,30 @@ async function handleMarketQuote(req, res) {
   const symbol = getSymbol(req);
   if (!symbol) return send(res, 400, { error: 'Missing symbol' });
 
+  const errors = [];
+
   try {
     const eastmoney = await fetchEastmoneyQuote(symbol);
-    if (eastmoney.price) return send(res, 200, eastmoney);
-  } catch {}
+    return send(res, 200, eastmoney);
+  } catch (error) {
+    errors.push(`东方财富: ${String(error.message || error)}`);
+  }
 
   try {
     const tencent = await fetchTencentQuote(symbol);
-    if (tencent.price) return send(res, 200, tencent);
+    return send(res, 200, tencent);
   } catch (error) {
-    return send(res, 200, demoQuote(symbol, String(error.message || error)));
+    errors.push(`腾讯财经: ${String(error.message || error)}`);
   }
 
-  return send(res, 200, demoQuote(symbol, 'All quote sources returned empty.'));
+  try {
+    const sina = await fetchSinaQuote(symbol);
+    return send(res, 200, sina);
+  } catch (error) {
+    errors.push(`新浪财经: ${String(error.message || error)}`);
+  }
+
+  return send(res, 200, demoQuote(symbol, errors.join(' | ')));
 }
 
 async function handleMarketKline(req, res) {
@@ -405,7 +610,13 @@ async function handleAiConviction(req, res) {
     }
 
     try {
-      return send(res, 200, JSON.parse(text));
+      const parsed = JSON.parse(text);
+      return send(res, 200, {
+        ...parsed,
+        data_status: 'ai-generated',
+        is_fallback: false,
+        source: 'OpenAI'
+      });
     } catch {
       return send(res, 200, { ...localConviction(payload), raw_text: text });
     }
@@ -429,6 +640,8 @@ export default async function handler(req, res) {
 
   try {
     if (path === '/api' || path === '/api/health') return handleHealth(req, res);
+
+    if (path === '/api/search/stocks') return handleStockSearch(req, res);
 
     if (path === '/api/market/quote') return handleMarketQuote(req, res);
     if (path === '/api/market/kline') return handleMarketKline(req, res);
@@ -454,6 +667,8 @@ export default async function handler(req, res) {
       path,
       available: [
         '/api/health',
+        '/api/search/stocks?q=贵州茅台',
+        '/api/search/stocks?q=gzmt',
         '/api/market/quote?symbol=600519',
         '/api/market/kline?symbol=600519',
         '/api/research/reports?symbol=600519',
@@ -467,6 +682,8 @@ export default async function handler(req, res) {
   } catch (error) {
     return send(res, 200, {
       source: 'single-function-fallback',
+      data_status: 'fallback',
+      is_fallback: true,
       error: String(error.message || error)
     });
   }
